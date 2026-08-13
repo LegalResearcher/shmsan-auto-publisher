@@ -370,7 +370,17 @@ HEADLINE_MIN_PHOTO_VISIBLE = 90   # أقل ارتفاع من الصورة الأ
 # تُنشر، وليس مقصوصة). أي صورة (jpg/jpeg/png/webp) تضعها هنا تُقارَن تلقائياً
 # بكل صورة خبر جديدة (كاملة، مقابل كاملة) قبل رفعها. لو ما فيه أي صورة
 # بالمجلد، الفحص يُتجاوز تلقائياً وتُنشر الصور عادي (بدون توقف البوت).
-BLOCKED_LOGOS_DIR = os.path.join(BASE_DIR, "blocked_logos")
+# ⚠️ هذا المجلد جزء من الريبو نفسه (بجانب السكربت) — لازم يُقرأ من مسار
+# السكربت مباشرة، وليس من BASE_DIR (الذي قد يُعاد توجيهه بمتغير BOT_DATA_DIR
+# أو يُنشأ فارغاً على Render بدون قرص دائم، فيفقد صور الحماية بالخطأ).
+BLOCKED_LOGOS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "blocked_logos"
+)
+
+# جدول Supabase اختياري لإضافة بصمات شعارات محظورة إضافية عن بُعد (بدون
+# الحاجة لإعادة نشر الريبو) — يُدمَج مع صور BLOCKED_LOGOS_DIR المحلية معاً،
+# وأي فشل بجلبه (مشكلة اتصال، الجدول غير موجود...) لا يوقف الفحص المحلي.
+BLOCKED_LOGO_HASHES_TABLE = "blocked_logo_hashes"
 
 # حجم "البصمة المرئية" (average hash) — 8 يعني مقارنة على أساس 64 بت
 LOGO_HASH_SIZE = 8
@@ -2838,18 +2848,11 @@ def _hamming_distance(a: int, b: int) -> int:
     return bin(a ^ b).count("1")
 
 
-def _load_blocked_logo_hashes() -> list:
-    """يقرأ كل صور الشعار من BLOCKED_LOGOS_DIR ويحسب بصمتها مرة واحدة فقط
-    (نتيجة مخزّنة بذاكرة التشغيل _BLOCKED_LOGO_HASHES_CACHE). يرجّع list
-    فارغة لو المجلد غير موجود أو فارغ، بدون إيقاف البوت."""
-    global _BLOCKED_LOGO_HASHES_CACHE
-    if _BLOCKED_LOGO_HASHES_CACHE is not None:
-        return _BLOCKED_LOGO_HASHES_CACHE
-
-    import os
+def _load_local_blocked_logo_hashes() -> list:
+    """يقرأ كل صور الشعار من BLOCKED_LOGOS_DIR (مجلد الريبو المحلي) ويحسب
+    بصمتها. يرجّع list فارغة لو المجلد غير موجود أو فارغ، بدون إيقاف البوت."""
     hashes = []
     if Image is None or not os.path.isdir(BLOCKED_LOGOS_DIR):
-        _BLOCKED_LOGO_HASHES_CACHE = hashes
         return hashes
 
     for filename in os.listdir(BLOCKED_LOGOS_DIR):
@@ -2862,7 +2865,52 @@ def _load_blocked_logo_hashes() -> list:
         except Exception as e:
             log.warning(f"⚠️  تعذّر قراءة صورة الشعار ({filename}): {e}")
 
-    log.info(f"🖼️  تم تحميل {len(hashes)} صورة شعار محظور للمطابقة من {BLOCKED_LOGOS_DIR}")
+    log.info(f"🖼️  تم تحميل {len(hashes)} صورة شعار محظور محلياً من {BLOCKED_LOGOS_DIR}")
+    return hashes
+
+
+def _load_supabase_blocked_logo_hashes() -> list:
+    """يجلب بصمات شعارات محظورة إضافية من جدول Supabase (اختياري، مُدار عن
+    بُعد بدون إعادة نشر الريبو). أي فشل (الجدول غير موجود، مشكلة اتصال...)
+    يرجّع list فارغة بدون إيقاف البوت أو حتى تسجيل خطأ مزعج."""
+    hashes = []
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/{BLOCKED_LOGO_HASHES_TABLE}"
+        r = requests.get(
+            url, headers=sb_headers(), params={"select": "hash_hex"},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if r.status_code != 200:
+            log.info(
+                f"ℹ️  تعذّر جلب بصمات شعارات إضافية من Supabase "
+                f"({BLOCKED_LOGO_HASHES_TABLE}) — سيُعتمَد على المجلد المحلي فقط."
+            )
+            return hashes
+        for row in r.json():
+            hex_val = row.get("hash_hex")
+            if not hex_val:
+                continue
+            try:
+                hashes.append(int(hex_val, 16))
+            except (TypeError, ValueError):
+                log.warning(f"⚠️  بصمة غير صالحة بجدول {BLOCKED_LOGO_HASHES_TABLE}: {hex_val!r}")
+        if hashes:
+            log.info(f"🖼️  تم تحميل {len(hashes)} بصمة شعار محظور إضافية من Supabase")
+    except Exception as e:
+        log.info(f"ℹ️  تعذّر الاتصال بجدول {BLOCKED_LOGO_HASHES_TABLE} بـSupabase: {e}")
+    return hashes
+
+
+def _load_blocked_logo_hashes() -> list:
+    """يجمع بصمات الشعارات المحظورة من المصدرين معاً: المجلد المحلي
+    (BLOCKED_LOGOS_DIR، الحماية الأصلية) + جدول Supabase (حماية إضافية عن
+    بُعد). النتيجة مخزّنة بذاكرة التشغيل (_BLOCKED_LOGO_HASHES_CACHE) بعد أول
+    استدعاء. فشل أحد المصدرين لا يوقف الآخر — الفحص يستمر بما هو متوفر."""
+    global _BLOCKED_LOGO_HASHES_CACHE
+    if _BLOCKED_LOGO_HASHES_CACHE is not None:
+        return _BLOCKED_LOGO_HASHES_CACHE
+
+    hashes = _load_local_blocked_logo_hashes() + _load_supabase_blocked_logo_hashes()
     _BLOCKED_LOGO_HASHES_CACHE = hashes
     return hashes
 

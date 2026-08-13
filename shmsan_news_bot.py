@@ -2050,6 +2050,102 @@ def get_recent_published_titles(hours: int = PUBLISHED_TITLES_MAX_AGE_HOURS) -> 
     return _load_and_prune_published_titles_log(hours)
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  📋  سجل العناوين المنشورة عبر Supabase (يدوم بين تشغيلات GitHub Actions)
+# ══════════════════════════════════════════════════════════════════════
+#  GitHub Actions لا يملك قرص دائم: كل تشغيلة تبدأ بنسخة نظيفة من الريبو،
+#  فسجل الملف المحلي أعلاه (PUBLISHED_TITLES_LOG_FILE) يتصفّر مع كل تشغيلة
+#  جديدة، وطبقة كشف التكرار الأقوى (embedding الدلالي عبر remove_duplicate_
+#  news) تفقد فعاليتها عبر التشغيلات المتفرقة (تبقى فعّالة فقط داخل نفس
+#  الدفعة/التشغيلة). هذا الجدول يخزّن نفس البيانات (عنوان + تاريخ نشر +
+#  متجه) بقاعدة البيانات مباشرة، فتدوم بين كل التشغيلات — دون إزالة
+#  الحماية المحلية أعلاه (تبقى تعمل كطبقة إضافية، وتحديداً كخط أول سريع
+#  لا يحتاج شبكة، ولا يتوقف لو تعذّر الاتصال بـSupabase مؤقتاً).
+
+BOT_PUBLISHED_TITLES_TABLE = "bot_published_titles_log"
+PUBLISHED_TITLES_DB_MAX_AGE_HOURS = 24
+
+
+def get_recent_published_titles_from_db(
+    hours: int = PUBLISHED_TITLES_DB_MAX_AGE_HOURS,
+) -> list[dict]:
+    """يجلب الأخبار المنشورة خلال آخر عدة ساعات من جدول Supabase (يدوم بين
+    كل تشغيلات GitHub Actions، بخلاف الملف المحلي). يرجّع list بنفس شكل
+    get_recent_published_titles (title/pub_date/embedding) لدمجها معه مباشرة
+    كـhistory_items بـremove_duplicate_news. أي فشل (مشكلة اتصال، الجدول
+    غير موجود بعد...) يرجّع list فارغة بدون إيقاف البوت."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    url = f"{SUPABASE_URL}/rest/v1/{BOT_PUBLISHED_TITLES_TABLE}"
+    params = {
+        "select": "title,pub_date,embedding",
+        "pub_date": f"gte.{cutoff}",
+        "order": "pub_date.desc",
+        "limit": "500",
+    }
+    try:
+        r = requests.get(url, headers=sb_headers(), params=params, timeout=REQUEST_TIMEOUT)
+        if r.status_code != 200:
+            log.info(
+                f"ℹ️  تعذّر جلب سجل العناوين المنشورة من Supabase "
+                f"({BOT_PUBLISHED_TITLES_TABLE}) — سيُعتمَد على السجل المحلي فقط."
+            )
+            return []
+        rows = r.json()
+    except (requests.RequestException, ValueError) as e:
+        log.info(f"ℹ️  تعذّر الاتصال بجدول {BOT_PUBLISHED_TITLES_TABLE} بـSupabase: {e}")
+        return []
+
+    out = []
+    for row in rows:
+        try:
+            pub_date = datetime.fromisoformat(row["pub_date"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        out.append({
+            "title": row.get("title", ""),
+            "pub_date": pub_date,
+            "embedding": row.get("embedding"),
+        })
+    if out:
+        log.info(f"📋 تم جلب {len(out)} عنوان منشور من سجل Supabase الدائم (آخر {hours} ساعة)")
+    return out
+
+
+def save_published_title_to_db(
+    title: str, pub_date_iso: str, embedding: Optional[list[float]] = None,
+) -> None:
+    """يضيف الخبر المنشور لجدول Supabase الدائم (بجانب السجل المحلي، وليس
+    بدلاً عنه)، ليدوم بين تشغيلات GitHub Actions المختلفة. لا يوقف البوت
+    عند أي فشل بالإدخال (مشكلة اتصال، الجدول غير موجود بعد...).
+    يحذف أيضاً أي صفوف تجاوز عمرها PUBLISHED_TITLES_DB_MAX_AGE_HOURS بنفس
+    الاستدعاء حتى لا يتضخّم الجدول للأبد (أسلوب مماثل لتقليم الملف المحلي)."""
+    url = f"{SUPABASE_URL}/rest/v1/{BOT_PUBLISHED_TITLES_TABLE}"
+    try:
+        r = requests.post(
+            url, headers=sb_headers(),
+            json={"title": title, "pub_date": pub_date_iso, "embedding": embedding},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if r.status_code not in (200, 201):
+            log.warning(
+                f"⚠️  تعذّر حفظ الخبر بسجل Supabase الدائم [{r.status_code}]: {r.text[:200]}"
+            )
+    except requests.RequestException as e:
+        log.warning(f"⚠️  تعذّر حفظ الخبر بسجل Supabase الدائم (خطأ اتصال): {e}")
+        return
+
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=PUBLISHED_TITLES_DB_MAX_AGE_HOURS)
+    ).isoformat()
+    try:
+        requests.delete(
+            url, headers=sb_headers(), params={"pub_date": f"lt.{cutoff}"},
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as e:
+        log.info(f"ℹ️  تعذّر تقليم سجل Supabase الدائم (لا يؤثر على النشر): {e}")
+
+
 def load_pending_scheduled() -> list:
     """يقرأ قائمة الأخبار المجدولة اللي لسا ما اتأكدنا من نشرها ولا أرسلنا
     رابطها لتيليجرام بعد. يرجّع قائمة فارغة لو الملف غير موجود أو تالف."""

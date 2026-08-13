@@ -33,7 +33,9 @@ from shmsan_news_bot import (
     check_and_notify_scheduled_posts,
     get_existing_source_urls,
     get_recent_published_titles,
+    get_recent_published_titles_from_db,
     log_published_title,
+    save_published_title_to_db,
     check_similar_published_title_db,
     load_blocked_links,
     save_blocked_link,
@@ -113,7 +115,11 @@ def run():
 
     existing_urls = get_existing_source_urls()
     blocked_links = load_blocked_links()
-    recent_published = get_recent_published_titles(hours=24)
+    # 📋 دمج المصدرين معاً: السجل المحلي (سريع، بلا شبكة، لكن يتصفّر كل
+    # تشغيلة على GitHub Actions) + سجل Supabase الدائم (يدوم بين كل
+    # التشغيلات). فشل أحد المصدرين لا يوقف الآخر — كل دالة تتعامل مع فشلها
+    # بنفسها وترجّع قائمة فارغة عند أي مشكلة.
+    recent_published = get_recent_published_titles(hours=24) + get_recent_published_titles_from_db(hours=24)
 
     items = collect_recent_items(SELECTED_FEEDS)
     new_items = [
@@ -272,6 +278,7 @@ def run():
             ok += 1
             log.info(f"  ✅ نُشر: {record['title'][:60]}")
             log_published_title(record["title"], record["created_at"], embedding=it.get("_title_embedding"))
+            save_published_title_to_db(record["title"], record["created_at"], embedding=it.get("_title_embedding"))
             save_blocked_link(it["link"])  # منع إعادة النشر مستقبلاً حتى لو حُذف الخبر من الموقع
             seed_views(post_id)
             canonical_url = build_canonical_url(record["slug"], record["published_at"])

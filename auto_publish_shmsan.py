@@ -54,7 +54,7 @@ from shmsan_news_bot import (
     seed_views,
     build_canonical_url,
     send_to_telegram,
-    request_google_indexing,
+    log_discovery_ready,
     word_stats,
     extract_keywords,
 )
@@ -286,7 +286,7 @@ def run():
             if send_to_telegram(record["title"], canonical_url):
                 log.info("  📢 أُرسل لتليجرام")
 
-            request_google_indexing([canonical_url])
+            log_discovery_ready([canonical_url])
         else:
             fail += 1
 

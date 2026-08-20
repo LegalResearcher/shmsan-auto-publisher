@@ -3,3 +3,4 @@ beautifulsoup4
 Pillow
 arabic-reshaper
 python-bidi
+opencv-python-headless

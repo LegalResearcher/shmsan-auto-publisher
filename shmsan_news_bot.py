@@ -55,14 +55,6 @@ except ImportError:  # pragma: no cover
     ImageDraw = None
     ImageFont = None
 
-# تستخدم لمطابقة صور الحظر المرجعية فقط؛ لا علاقة لها بمصدر الخبر أو نطاق الصورة.
-try:
-    import cv2
-    import numpy as np
-except ImportError:  # pragma: no cover
-    cv2 = None
-    np = None
-
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display as _bidi_get_display
@@ -2929,12 +2921,6 @@ def fetch_og_image(article_url: str) -> Optional[str]:
 
 
 _BLOCKED_LOGO_HASHES_CACHE: Optional[list] = None
-_BLOCKED_LOGO_ORB_TEMPLATES_CACHE: Optional[list] = None
-
-# لا يُقبل الحظر الموضعي إلا بعد تحقق هندسي محافظ مع صورة مرجعية محظورة.
-LOGO_ORB_FEATURES = 3000
-LOGO_ORB_RATIO_TEST = 0.78
-LOGO_ORB_MIN_INLIERS = 6
 
 
 def _average_hash(img: "Image.Image") -> int:
@@ -3019,123 +3005,25 @@ def _load_blocked_logo_hashes() -> list:
     return hashes
 
 
-def _load_local_blocked_logo_orb_templates() -> list:
-    """يجهّز خصائص ملفات صور الحظر الموجودة في blocked_logos فقط.
-
-    لا يدخل عنوان الخبر أو رابط مصدره في المطابقة؛ كل قالب هنا مصدره ملف أضافه
-    المسؤول صراحةً إلى قائمة الحظر المحلية.
-    """
-    global _BLOCKED_LOGO_ORB_TEMPLATES_CACHE
-    if _BLOCKED_LOGO_ORB_TEMPLATES_CACHE is not None:
-        return _BLOCKED_LOGO_ORB_TEMPLATES_CACHE
-
-    templates = []
-    if cv2 is None or not os.path.isdir(BLOCKED_LOGOS_DIR):
-        _BLOCKED_LOGO_ORB_TEMPLATES_CACHE = templates
-        return templates
-
-    detector = cv2.ORB_create(
-        nfeatures=LOGO_ORB_FEATURES,
-        scaleFactor=1.12,
-        nlevels=12,
-        fastThreshold=5,
-    )
-    for filename in sorted(os.listdir(BLOCKED_LOGOS_DIR)):
-        if not filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-            continue
-        try:
-            image = cv2.imread(os.path.join(BLOCKED_LOGOS_DIR, filename), cv2.IMREAD_GRAYSCALE)
-            if image is None:
-                raise ValueError("لا يمكن فك ترميز الصورة")
-            keypoints, descriptors = detector.detectAndCompute(image, None)
-            if descriptors is not None and len(keypoints) >= 4:
-                templates.append((filename, keypoints, descriptors))
-        except Exception as e:
-            log.warning(f"⚠️  تعذّر تجهيز مرجع الحظر الموضعي ({filename}): {e}")
-
-    log.info(f"🖼️  تم تجهيز {len(templates)} مرجع حظر موضعي من blocked_logos.")
-    _BLOCKED_LOGO_ORB_TEMPLATES_CACHE = templates
-    return templates
-
-
-def _matches_local_blocked_logo_template(raw_bytes: bytes) -> bool:
-    """يتحقق من تشابه موضعي مع ملفات الحظر المرجعية فقط.
-
-    لا تؤثر النتيجة على نشر الخبر: عند التطابق يترك مسار الصورة حقلي الغلاف
-    والصورة المصغرة فارغين، بينما يبقى السجل نفسه قابلاً للنشر.
-    """
-    if cv2 is None or np is None:
-        log.warning("⚠️  OpenCV غير متاح؛ سيُستخدم فحص البصمة الكاملة فقط.")
-        return False
-
-    templates = _load_local_blocked_logo_orb_templates()
-    if not templates:
+def image_contains_blocked_logo(raw_bytes: bytes) -> bool:
+    """يقارن الصورة المُنزَّلة كاملة ببصمات صور BLOCKED_LOGOS_DIR الكاملة
+    (صورة مقابل صورة، وليس زوايا). يرجّع True لو تطابقت ضمن
+    LOGO_MATCH_MAX_DISTANCE. عند أي خطأ (صورة تالفة، Pillow غير مثبّتة...)
+    يرجّع False (fail-open) حتى لا يتوقف نشر الصورة بسبب عطل بالفحص نفسه."""
+    reference_hashes = _load_blocked_logo_hashes()
+    if not reference_hashes or Image is None:
         return False
 
     try:
-        target = cv2.imdecode(np.frombuffer(raw_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-        if target is None:
-            raise ValueError("لا يمكن فك ترميز الصورة المُنزَّلة")
-
-        detector = cv2.ORB_create(
-            nfeatures=LOGO_ORB_FEATURES,
-            scaleFactor=1.12,
-            nlevels=12,
-            fastThreshold=5,
-        )
-        target_keypoints, target_descriptors = detector.detectAndCompute(target, None)
-        if target_descriptors is None or len(target_keypoints) < 4:
-            return False
-
-        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-        for filename, reference_keypoints, reference_descriptors in templates:
-            pairs = matcher.knnMatch(reference_descriptors, target_descriptors, k=2)
-            good_matches = [
-                pair[0] for pair in pairs
-                if len(pair) == 2 and pair[0].distance < LOGO_ORB_RATIO_TEST * pair[1].distance
-            ]
-            if len(good_matches) < 4:
-                continue
-
-            reference_points = np.float32(
-                [reference_keypoints[match.queryIdx].pt for match in good_matches]
-            ).reshape(-1, 1, 2)
-            target_points = np.float32(
-                [target_keypoints[match.trainIdx].pt for match in good_matches]
-            ).reshape(-1, 1, 2)
-            _, inlier_mask = cv2.findHomography(reference_points, target_points, cv2.RANSAC, 5.0)
-            inliers = int(inlier_mask.sum()) if inlier_mask is not None else 0
-            if inliers >= LOGO_ORB_MIN_INLIERS:
-                log.info(
-                    f"  🚫 تطابق موضعي مع مرجع حظر صريح ({filename}; "
-                    f"{inliers} تطابقات هندسية) — لن تُرفع الصورة."
-                )
-                return True
-    except Exception as e:
-        log.warning(f"⚠️  تعذّر فحص التطابق الموضعي للصورة: {e}")
-
-    return False
-
-
-def image_contains_blocked_logo(raw_bytes: bytes) -> bool:
-    """يفحص فقط مراجع الحظر التي أضيفت صراحةً.
-
-    لا يفحص نطاق المصدر أو اسم الموقع أو عنوان الخبر. تطابق الصورة يمنع رفعها
-    فقط؛ الخبر نفسه لا يُحظر ولا تتغير حالة نشره.
-    """
-    reference_hashes = _load_blocked_logo_hashes()
-    if Image is not None and reference_hashes:
-        try:
-            with Image.open(io.BytesIO(raw_bytes)) as img:
-                img_hash = _average_hash(img.convert("RGB"))
+        with Image.open(io.BytesIO(raw_bytes)) as img:
+            img_hash = _average_hash(img.convert("RGB"))
             for ref_hash in reference_hashes:
                 if _hamming_distance(img_hash, ref_hash) <= LOGO_MATCH_MAX_DISTANCE:
-                    log.info("  🚫 تطابق مباشر مع صورة حظر مرجعية — لن تُرفع الصورة.")
                     return True
-        except Exception as e:
-            log.warning(f"⚠️  تعذّر فحص بصمة الصورة: {e}")
-
-    return _matches_local_blocked_logo_template(raw_bytes)
+        return False
+    except Exception as e:
+        log.warning(f"⚠️  تعذّر فحص شعار الصورة (سيُتابَع النشر بدون فحص): {e}")
+        return False
 
 
 def get_post_image_url(

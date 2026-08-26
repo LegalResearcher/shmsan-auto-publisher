@@ -92,6 +92,12 @@ RSS_MASA_CATEGORY = "أخبار وتقارير"
 RSS_ADEN_TM_FULL_URL = "https://www.aden-tm.net/feed"
 RSS_ADEN_TM_FULL_CATEGORY = "أخبار وتقارير"
 
+# رابط RSS الحي لوكالة الصحافة اليمنية — نفس منطق عدن تايم:
+# يسحب البوت عناصر التصنيف المحدد، ثم يفتح كل رابط فعلياً عبر extract_article
+# لجلب النص الكامل من صفحة الخبر نفسها، وينشرها في "أخبار وتقارير".
+RSS_YPAGENCY_FULL_URL = "https://www.ypagency.net/category/%d8%a7%d9%84%d9%85%d8%ad%d8%a7%d9%81%d8%b8%d8%a7%d8%aa-%d8%a7%d9%84%d9%85%d8%ad%d8%aa%d9%84%d8%a9/feed"
+RSS_YPAGENCY_FULL_CATEGORY = "أخبار وتقارير"
+
 # رابط RSS الحي العام لموقع الجزيرة نت (aljazeera.net) — نفس منطق عدن تايم
 # حرفياً: البوت يسحب كل الأخبار من هذا الفيد (عام، كل الأقسام)، ثم يفتح كل
 # رابط فعلياً عبر extract_article ليجلب النص الكامل من صفحة الخبر نفسها.
@@ -3905,9 +3911,10 @@ def main():
         selected_feeds = dict(RSS_FEED_CATEGORIES)
     elif extraction_mode == "3":
         selected_feeds = {RSS_MASA_URL: RSS_MASA_CATEGORY}
-    else:  # "1" — استخراج كامل: فيد عدن تايم الحي + فيد الجزيرة (اليمن) + فيد المساء برس معاً
+    else:  # "1" — استخراج كامل: عدن تايم + وكالة اليمن + الجزيرة (اليمن) + المساء برس
         selected_feeds = {
             RSS_ADEN_TM_FULL_URL: RSS_ADEN_TM_FULL_CATEGORY,
+            RSS_YPAGENCY_FULL_URL: RSS_YPAGENCY_FULL_CATEGORY,
             RSS_ALJAZEERA_YEMEN_URL: RSS_ALJAZEERA_YEMEN_CATEGORY,
             RSS_MASA_URL: RSS_MASA_CATEGORY,
         }

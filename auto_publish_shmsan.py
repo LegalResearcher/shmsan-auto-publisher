@@ -24,8 +24,8 @@ from shmsan_news_bot import (
     RSS_ADEN_TM_FULL_CATEGORY,
     RSS_YPAGENCY_FULL_URL,
     RSS_YPAGENCY_FULL_CATEGORY,
-    RSS_ALJAZEERA_YEMEN_URL,
-    RSS_ALJAZEERA_YEMEN_CATEGORY,
+    RSS_YPAGENCY_YEMEN_URL,
+    RSS_YPAGENCY_YEMEN_CATEGORY,
     NO_REWRITE_CATEGORIES,
     NO_IMAGE_CATEGORIES,
     FEATURED_SLIDER_CATEGORIES,
@@ -63,8 +63,8 @@ from shmsan_news_bot import (
 
 # ══════════════════════════════════════════════════════════════════════
 #  🔒 نسخة تلقائية — تعمل فقط على المصادر التي لا تحتاج تحديث ملفات XML
-#  يدوياً (فيد عدن تايم الحي الكامل + فيد وكالة اليمن لقسم المحافظات المحتلة
-#  + فيد الجزيرة نت اليمن + فيد المساء برس)، بنفس منطق وضع "1" (استخراج
+#  يدوياً (فيد عدن تايم الحي الكامل + فيدا وكالة اليمن لقسمي المحافظات المحتلة
+#  واليمن–سياسية + فيد المساء برس)، بنفس منطق وضع "1" (استخراج
 #  الخبر كاملاً) + الوضع التلقائي (كل خبر
 #  بقسمه الخاص) من shmsan_news_bot.py الأصلي، لكن بدون أي تفاعل يدوي (بدون
 #  أسئلة استخراج/تصنيف/استثناء/جدولة، وبدون طلب كتابة "تأكيد") — تُنشر كل
@@ -76,9 +76,9 @@ SELECTED_FEEDS = {
     # 🆕 وكالة الصحافة اليمنية — قسم المحافظات المحتلة فقط، ويُنشر في
     # "أخبار وتقارير" كما هو محدد في المصدر.
     RSS_YPAGENCY_FULL_URL: RSS_YPAGENCY_FULL_CATEGORY,
-    # 🆕 فيد الجزيرة نت اليمن (مفلتَر تلقائياً داخل apply_full_extraction —
-    # أي خبر ليس عن اليمن فعلياً يُستبعد قبل النشر):
-    RSS_ALJAZEERA_YEMEN_URL: RSS_ALJAZEERA_YEMEN_CATEGORY,
+    # 🆕 وكالة اليمن — قسم اليمن–سياسية فقط، ويُنشر في "أخبار اليمن".
+    # يُفتح كل رابط ويُستخرج نصه الكامل مثل فيد المحافظات المحتلة.
+    RSS_YPAGENCY_YEMEN_URL: RSS_YPAGENCY_YEMEN_CATEGORY,
     # ⏸️ المساء برس مستبعد مؤقتاً — أعد هذا السطر لتفعيله من جديد:
     # RSS_MASA_URL: RSS_MASA_CATEGORY,
 }
@@ -113,7 +113,7 @@ def _is_blocked_auto_topic(it: dict) -> bool:
 
 def run():
     log.info("═" * 60)
-    log.info("  📰  شمسان نيوز — تشغيل تلقائي (عدن تايم + وكالة اليمن + الجزيرة اليمن + المساء برس)")
+    log.info("  📰  شمسان نيوز — تشغيل تلقائي (عدن تايم + فيدا وكالة اليمن + المساء برس)")
     log.info("═" * 60)
 
     check_system_logs_size()

@@ -8,9 +8,8 @@ is_featured/is_opinion/seo_title/seo_description بدل category/image_url/
 featured/author/meta_title/meta_description بالجنوب فويس).
 يسحب أخبار آخر 24 ساعة من روابط RSS محددة، يعيد صياغتها عبر Gemini،
 وينشرها تلقائياً في جدول posts.
-🆕 وضع "1" (استخراج كامل) يجمع الآن 3 مصادر حية: عدن تايم + فيد الجزيرة نت
-العام (مفلتَر تلقائياً لأخبار اليمن فقط عبر RSS_ALJAZEERA_YEMEN_URL) +
-المساء برس.
+🆕 وضع "1" (استخراج كامل) يجمع الآن 4 مصادر حية: عدن تايم + فيدا وكالة اليمن
+للمحافظات المحتلة واليمن–سياسية + المساء برس.
 
 المتطلبات:
     pip install requests pillow beautifulsoup4
@@ -98,16 +97,12 @@ RSS_ADEN_TM_FULL_CATEGORY = "أخبار وتقارير"
 RSS_YPAGENCY_FULL_URL = "https://www.ypagency.net/category/%d8%a7%d9%84%d9%85%d8%ad%d8%a7%d9%81%d8%b8%d8%a7%d8%aa-%d8%a7%d9%84%d9%85%d8%ad%d8%aa%d9%84%d8%a9/feed"
 RSS_YPAGENCY_FULL_CATEGORY = "أخبار وتقارير"
 
-# رابط RSS الحي العام لموقع الجزيرة نت (aljazeera.net) — نفس منطق عدن تايم
-# حرفياً: البوت يسحب كل الأخبار من هذا الفيد (عام، كل الأقسام)، ثم يفتح كل
-# رابط فعلياً عبر extract_article ليجلب النص الكامل من صفحة الخبر نفسها.
-# ⚠️ لا يوجد فيد RSS مخصص لقسم "اليمن" وحده بموقع الجزيرة — فقط فيد عام،
-# فالفلترة لقسم اليمن تحديداً تتم لاحقاً بفحص كل خبر بعد فتح صفحته (شوف
-# apply_full_extraction ودالة _detect_aljazeera_where): أي خبر لا يحمل
-# "اليمن" ضمن تصنيف الجغرافيا الفعلي بصفحته (وسم <meta name="where">) يُستبعد
-# تماماً من النشر، تماماً كما تُستبعد أخبار عدن تايم ذات القسم غير المعروف.
-RSS_ALJAZEERA_YEMEN_URL = "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9"
-RSS_ALJAZEERA_YEMEN_CATEGORY = "أخبار اليمن"
+# رابط RSS الحي لوكالة الصحافة اليمنية لقسم "اليمن – سياسية".
+# يُستخدم بنفس منطق فيد "المحافظات المحتلة": يسحب عناصر هذا القسم فقط،
+# ثم يفتح كل رابط فعلياً عبر extract_article لجلب النص الكامل من صفحة الخبر،
+# وينشره في قسم "أخبار اليمن".
+RSS_YPAGENCY_YEMEN_URL = "https://www.ypagency.net/category/%d8%a7%d9%84%d9%8a%d9%85%d9%86/%d8%b3%d9%8a%d8%a7%d8%b3%d9%8a%d8%a9/feed"
+RSS_YPAGENCY_YEMEN_CATEGORY = "أخبار اليمن"
 
 # كلمات محظورة — أي خبر من ملفات XML المحلية يحتوي إحداها (بالعنوان أو النص)
 # يُتجاوز بالكامل: لا يُرسل لـ Gemini، ولا تُعاد صياغته، ولا يُنشر.
@@ -902,8 +897,6 @@ def extract_image_url(item: ET.Element, description_raw: str, content_encoded_ra
 
 
 def fetch_feed(url: str, category: str) -> list[dict]:
-    if url == RSS_ALJAZEERA_YEMEN_URL:
-        return fetch_yemen_category_page(category)
     # يدعم رابط إنترنت (http/https) أو مسار ملف XML محلي على الجهاز
     if url.startswith("http://") or url.startswith("https://"):
         try:
@@ -1023,7 +1016,7 @@ def fetch_yemen_category_page(category: str) -> list[dict]:
             "link": href,
             "pub_date": now_utc,
             "raw_body": "",
-            "source_feed": RSS_ALJAZEERA_YEMEN_URL,
+            "source_feed": RSS_YPAGENCY_YEMEN_URL,
             "image_url": None,
             "category": category,
             "author": None,
@@ -1669,22 +1662,6 @@ def apply_full_extraction(items: list[dict]) -> None:
             # أي معلومة عن القسم الحقيقي، فلا يجوز نشره بالقسم الافتراضي.
             log.info("     ↳ 🚫 تعذّر فتح الصفحة نهائياً — سيُستبعد الخبر من النشر (لا يمكن التأكد من قسمه).")
             it["_excluded"] = True
-
-        # 🌍 أخبار فيد الجزيرة العام (RSS_ALJAZEERA_YEMEN_URL): الفيد يحوي كل
-        # أقسام الجزيرة نت (عالمي/رياضة/اقتصاد/اليمن/إلخ)، فلازم نتأكد من
-        # صفحة كل خبر فعلياً إنه مصنّف تحت "اليمن" (عبر <meta name="where">)
-        # قبل نشره — أي خبر غير يمني، أو تعذّر فتح صفحته أصلاً، يُستبعد.
-        elif it.get("source_feed") == RSS_ALJAZEERA_YEMEN_URL:
-            where_list = (result or {}).get("site_where") or []
-            if "اليمن" in where_list:
-                if it["category"] != RSS_ALJAZEERA_YEMEN_CATEGORY:
-                    it["category"] = RSS_ALJAZEERA_YEMEN_CATEGORY
-            else:
-                log.info(
-                    f"     ↳ 🚫 الخبر ليس عن اليمن حسب تصنيف الجزيرة الفعلي "
-                    f"(where={where_list or 'تعذّر اكتشافه'}) — سيُستبعد."
-                )
-                it["_excluded"] = True
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -3223,7 +3200,9 @@ def build_prompt(title: str, body: str, category: str, source_feed: Optional[str
     #     "جماعة" ولا "أنصار الله" ولا "الحوثي" مباشرة، مقصور على هذا المصدر.
     #   - أي مصدر آخر (عدن تايم، المساء برس، إلخ): يبقى السلوك الأصلي —
     #     حذف الإشارة نهائياً من النص بلا ذكر أي اسم أو مصطلح بديل.
-    is_aljazeera_source = (source_feed == RSS_ALJAZEERA_YEMEN_URL)
+    # فيد اليمن–سياسية من وكالة اليمن يعامل مثل فيد المحافظات المحتلة،
+    # ولا يحتاج فلترة "where" أو تبديل مصطلحات الجزيرة الخاصة.
+    is_aljazeera_source = False
 
     if is_aljazeera_source:
         rule_2 = """2) إذا كان الخبر مهماً وله وقائع وتفاصيل فعلية (قرار، حدث ميداني، بيان، تعيين، إلخ) لكنه يتضمن فقط إشارة أو ذكراً ضمن سياقه للحوثي/أنصار الله/إيران دون أن يكون محور الخبر هجوماً عليهم — اجعل "houthi_iran_exclude" = false، وأعد صياغة العنوان والمتن معاً بحيث لا تُستخدم كلمة "جماعة" ولا "أنصار الله" ولا "الحوثي" ولا "إيران" بأي صيغة مباشرة، واستبدلها بما يلي حسب سياق كل فقرة:
@@ -3930,11 +3909,11 @@ def main():
         selected_feeds = dict(RSS_FEED_CATEGORIES)
     elif extraction_mode == "3":
         selected_feeds = {RSS_MASA_URL: RSS_MASA_CATEGORY}
-    else:  # "1" — استخراج كامل: عدن تايم + وكالة اليمن + الجزيرة (اليمن) + المساء برس
+    else:  # "1" — استخراج كامل: عدن تايم + فيدا وكالة اليمن + المساء برس
         selected_feeds = {
             RSS_ADEN_TM_FULL_URL: RSS_ADEN_TM_FULL_CATEGORY,
             RSS_YPAGENCY_FULL_URL: RSS_YPAGENCY_FULL_CATEGORY,
-            RSS_ALJAZEERA_YEMEN_URL: RSS_ALJAZEERA_YEMEN_CATEGORY,
+            RSS_YPAGENCY_YEMEN_URL: RSS_YPAGENCY_YEMEN_CATEGORY,
             RSS_MASA_URL: RSS_MASA_CATEGORY,
         }
 

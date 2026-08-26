@@ -22,6 +22,8 @@ from shmsan_news_bot import (
     RSS_MASA_CATEGORY,
     RSS_ADEN_TM_FULL_URL,
     RSS_ADEN_TM_FULL_CATEGORY,
+    RSS_YPAGENCY_FULL_URL,
+    RSS_YPAGENCY_FULL_CATEGORY,
     RSS_ALJAZEERA_YEMEN_URL,
     RSS_ALJAZEERA_YEMEN_CATEGORY,
     NO_REWRITE_CATEGORIES,
@@ -61,8 +63,9 @@ from shmsan_news_bot import (
 
 # ══════════════════════════════════════════════════════════════════════
 #  🔒 نسخة تلقائية — تعمل فقط على المصادر التي لا تحتاج تحديث ملفات XML
-#  يدوياً (فيد عدن تايم الحي الكامل + فيد الجزيرة نت اليمن + فيد المساء
-#  برس)، بنفس منطق وضع "1" (استخراج الخبر كاملاً) + الوضع التلقائي (كل خبر
+#  يدوياً (فيد عدن تايم الحي الكامل + فيد وكالة اليمن لقسم المحافظات المحتلة
+#  + فيد الجزيرة نت اليمن + فيد المساء برس)، بنفس منطق وضع "1" (استخراج
+#  الخبر كاملاً) + الوضع التلقائي (كل خبر
 #  بقسمه الخاص) من shmsan_news_bot.py الأصلي، لكن بدون أي تفاعل يدوي (بدون
 #  أسئلة استخراج/تصنيف/استثناء/جدولة، وبدون طلب كتابة "تأكيد") — تُنشر كل
 #  الأخبار فوراً (status=published). تُشغَّل عبر cron كل عدة دقائق.
@@ -70,6 +73,9 @@ from shmsan_news_bot import (
 
 SELECTED_FEEDS = {
     RSS_ADEN_TM_FULL_URL: RSS_ADEN_TM_FULL_CATEGORY,
+    # 🆕 وكالة الصحافة اليمنية — قسم المحافظات المحتلة فقط، ويُنشر في
+    # "أخبار وتقارير" كما هو محدد في المصدر.
+    RSS_YPAGENCY_FULL_URL: RSS_YPAGENCY_FULL_CATEGORY,
     # 🆕 فيد الجزيرة نت اليمن (مفلتَر تلقائياً داخل apply_full_extraction —
     # أي خبر ليس عن اليمن فعلياً يُستبعد قبل النشر):
     RSS_ALJAZEERA_YEMEN_URL: RSS_ALJAZEERA_YEMEN_CATEGORY,
@@ -107,7 +113,7 @@ def _is_blocked_auto_topic(it: dict) -> bool:
 
 def run():
     log.info("═" * 60)
-    log.info("  📰  شمسان نيوز — تشغيل تلقائي (عدن تايم + الجزيرة اليمن + المساء برس)")
+    log.info("  📰  شمسان نيوز — تشغيل تلقائي (عدن تايم + وكالة اليمن + الجزيرة اليمن + المساء برس)")
     log.info("═" * 60)
 
     check_system_logs_size()

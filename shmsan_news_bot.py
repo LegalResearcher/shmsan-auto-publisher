@@ -3181,8 +3181,32 @@ def build_prompt(title: str, body: str, category: str, source_feed: Optional[str
     بناء البرومبت الذكي بناءً على تصنيف الخبر ومحتواه لضمان التوازن بين
     الهوية التحريرية لـ "جنوب فويس" والمحددات الأمنية والخدمية والرياضية.
     """
-    raw_body = body
+    raw_body = body[:8000]
     cat = category.strip()
+    is_ypagency_source = source_feed in {RSS_YPAGENCY_FULL_URL, RSS_YPAGENCY_YEMEN_URL}
+
+    # أخبار وكالة اليمن تُعالج بمنطق صنعاء برس: المصدر الخام هو المرجع الوحيد،
+    # ولا يُسمح بدمج أخبار أخرى أو اختراع خلفية/خاتمة من خارج النص.
+    if is_ypagency_source:
+        return f"""
+أنت محرر صحفي محترف في موقع شمسان نيوز. أعد صياغة الخبر التالي من الصفر
+مع الحفاظ الصارم على جميع الوقائع والتصريحات والأرقام الواردة فيه.
+
+قواعد إلزامية للمصدر:
+- استخدم النص الخام أدناه وحده، ولا تضف أي معلومة أو حدث أو خلفية من خارج النص.
+- لا تدمج هذا الخبر مع أي خبر آخر، ولا تلتقط عناوين أو أخبارًا ذات صلة من الصفحة.
+- لا تكرر أي فقرة أو واقعة، ولا تنشئ خاتمة جديدة؛ يجب أن ينتهي النص عند آخر واقعة
+  أو تصريح موجود في النص الخام.
+- لا تلخص الخبر ولا تحذف تفاصيله.
+- اكتب كل جملة في فقرة مستقلة بعد النقطة أو علامة الاستفهام أو التعجب.
+- لا تكتب الرموز الحرفية `\\n` أو `\\n\\n` داخل المحتوى.
+
+العنوان الأصلي: {title}
+النص الخام:
+{body}
+
+أعد كائن JSON بالحقول: title, excerpt, content, houthi_iran_exclude.
+"""
 
     # 1. قائمة الأقسام المستثناة تماماً من الخط التحريري السياسي لـ "جنوب فويس"
     neutral_categories = ["الرياضة", "رياضة", "منوعات", "شؤون دولية", "أسعار الصرف", "أسعار صرف العملات", "الذهب"]
@@ -3242,7 +3266,7 @@ def build_prompt(title: str, body: str, category: str, source_feed: Optional[str
         return prompt + json_instruction
 
     # --- المسار الثاني: إذا كان الخبر سياسياً/محلياً ولكنه يحتوي على إشارات لصنعاء أو الحوثيين (حماية أمنية) ---
-    elif any(kw in raw_body for kw in sanaa_keywords):
+    elif (not is_ypagency_source) and any(kw in raw_body for kw in sanaa_keywords):
         prompt = f"""
 أنت محرر صحفي محترف ومحايد تعمل في وكالة أنباء دولية رصينة. يُطلب منك إعادة صياغة الخبر التالي (الذي يخص صنعاء أو جماعة أنصار الله) بأسلوب "دبلوماسي بارد" وجاف تماماً، يركز على الوقائع ويتحاشى أي لغة هجومية أو تحريضية قد تسبب مشاكل أمنية وقانونية للموقع، مع الحفاظ الكامل على طول النص الخام وكافة تفاصيله.
 
@@ -3451,7 +3475,8 @@ def rewrite_article(title: str, body: str, category: str, source_feed: Optional[
         for key in ("title", "excerpt", "content"):
             if isinstance(data.get(key), str):
                 data[key] = normalize_model_text(data[key])
-        if data.get("houthi_iran_exclude") is True:
+        is_ypagency_source = source_feed in {RSS_YPAGENCY_FULL_URL, RSS_YPAGENCY_YEMEN_URL}
+        if data.get("houthi_iran_exclude") is True and not is_ypagency_source:
             log.info(f"  🚫 [فلتر الحوثي/إيران] خبر هجومي خالص — استُبعد من النشر: {title[:60]}")
             return None
         return data

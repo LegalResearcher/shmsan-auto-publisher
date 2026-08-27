@@ -184,7 +184,12 @@ def run():
         else:
             log.info(f"✍️  إعادة صياغة: {it['title'][:60]}")
             try:
-                rewritten = rewrite_article(it["title"], it["raw_body"], post_category)
+                rewritten = rewrite_article(
+                    it["title"],
+                    it["raw_body"],
+                    post_category,
+                    source_feed=it.get("source_feed"),
+                )
             except Exception as e:
                 log.error(f"  ❌ فشلت إعادة الصياغة: {e}")
                 fail += 1

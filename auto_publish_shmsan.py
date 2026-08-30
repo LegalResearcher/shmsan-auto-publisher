@@ -22,6 +22,8 @@ from shmsan_news_bot import (
     RSS_MASA_CATEGORY,
     RSS_ADEN_TM_FULL_URL,
     RSS_ADEN_TM_FULL_CATEGORY,
+    RSS_ALQUDS_SPORT_URL,
+    RSS_ALQUDS_SPORT_CATEGORY,
     RSS_YPAGENCY_FULL_URL,
     RSS_YPAGENCY_FULL_CATEGORY,
     RSS_YPAGENCY_YEMEN_URL,
@@ -73,6 +75,7 @@ from shmsan_news_bot import (
 
 SELECTED_FEEDS = {
     RSS_ADEN_TM_FULL_URL: RSS_ADEN_TM_FULL_CATEGORY,
+    RSS_ALQUDS_SPORT_URL: RSS_ALQUDS_SPORT_CATEGORY,
     # 🆕 وكالة الصحافة اليمنية — قسم المحافظات المحتلة فقط، ويُنشر في
     # "أخبار وتقارير" كما هو محدد في المصدر.
     RSS_YPAGENCY_FULL_URL: RSS_YPAGENCY_FULL_CATEGORY,
@@ -88,8 +91,6 @@ SELECTED_FEEDS = {
 EXCLUDED_AUTO_CATEGORIES = {
     "آراء واتجاهات",
     "أسعار العملات والذهب",
-    # ⏸️ رياضة مستبعد مؤقتاً — احذف هذا السطر لإعادة تفعيله من جديد:
-    "رياضة",
 }
 
 # 🚫 كلمات مفتاحية تستبعد الخبر تلقائياً لو ظهرت بعنوانه أو نصه، بمعزل عن

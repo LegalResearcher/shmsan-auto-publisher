@@ -91,6 +91,9 @@ RSS_MASA_CATEGORY = "أخبار وتقارير"
 RSS_ADEN_TM_FULL_URL = "https://www.aden-tm.net/feed"
 RSS_ADEN_TM_FULL_CATEGORY = "أخبار وتقارير"
 
+RSS_ALQUDS_SPORT_URL = "https://www.alquds.co.uk/category/%d8%b1%d9%8a%d8%a7%d8%b6%d8%a9/feed/"
+RSS_ALQUDS_SPORT_CATEGORY = "رياضة"
+
 # رابط RSS الحي لوكالة الصحافة اليمنية — نفس منطق عدن تايم:
 # يسحب البوت عناصر التصنيف المحدد، ثم يفتح كل رابط فعلياً عبر extract_article
 # لجلب النص الكامل من صفحة الخبر نفسها، وينشرها في "أخبار وتقارير".

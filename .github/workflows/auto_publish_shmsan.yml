@@ -1,10 +1,14 @@
 name: نشر تلقائي - شمسان نيوز
 
 on:
-  schedule:
-    # كل ساعة
-    - cron: "0 * * * *"
+  repository_dispatch:
+    types: [supabase-publish]
   workflow_dispatch: {}   # يسمح بتشغيل يدوي فوري من تبويب Actions للاختبار
+
+# منع تشغيل نسختين من البوت في الوقت نفسه؛ التشغيل التالي ينتظر حتى انتهاء السابق
+concurrency:
+  group: shmsan-auto-publisher
+  cancel-in-progress: false
 
 jobs:
   publish:

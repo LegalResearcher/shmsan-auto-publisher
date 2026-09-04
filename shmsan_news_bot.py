@@ -100,6 +100,11 @@ RSS_ALQUDS_SPORT_CATEGORY = "رياضة"
 RSS_YPAGENCY_FULL_URL = "https://www.ypagency.net/category/%d8%a7%d9%84%d9%85%d8%ad%d8%a7%d9%81%d8%b8%d8%a7%d8%aa-%d8%a7%d9%84%d9%85%d8%ad%d8%aa%d9%84%d8%a9/feed"
 RSS_YPAGENCY_FULL_CATEGORY = "أخبار وتقارير"
 
+# رابط RSS الحي لموقع النقابي الجنوبي — نفس منطق فيد المحافظات المحتلة:
+# يسحب العناصر ثم يفتح كل رابط فعلياً لاستخراج النص الكامل، وينشرها في أخبار وتقارير.
+RSS_ALNAQABI_FULL_URL = "https://alnqabialjanubi.com/archives/category/newscat/feed"
+RSS_ALNAQABI_FULL_CATEGORY = "أخبار وتقارير"
+
 # رابط RSS الحي لوكالة الصحافة اليمنية لقسم "اليمن – سياسية".
 # يُستخدم بنفس منطق فيد "المحافظات المحتلة": يسحب عناصر هذا القسم فقط،
 # ثم يفتح كل رابط فعلياً عبر extract_article لجلب النص الكامل من صفحة الخبر،
@@ -3186,10 +3191,14 @@ def build_prompt(title: str, body: str, category: str, source_feed: Optional[str
     """
     raw_body = body[:8000]
     cat = category.strip()
-    is_ypagency_source = source_feed in {RSS_YPAGENCY_FULL_URL, RSS_YPAGENCY_YEMEN_URL}
+    is_ypagency_source = source_feed in {
+        RSS_YPAGENCY_FULL_URL,
+        RSS_YPAGENCY_YEMEN_URL,
+        RSS_ALNAQABI_FULL_URL,
+    }
 
-    # أخبار وكالة اليمن تُعالج بمنطق صنعاء برس: المصدر الخام هو المرجع الوحيد،
-    # ولا يُسمح بدمج أخبار أخرى أو اختراع خلفية/خاتمة من خارج النص.
+    # أخبار وكالة اليمن والنقابي الجنوبي تُعالج بمنطق المصدر الخام: المرجع الوحيد
+    # هو نص الخبر المستخرج، ولا يُسمح بدمج أخبار أخرى أو اختراع خلفية/خاتمة.
     if is_ypagency_source:
         return f"""
 أنت محرر صحفي محترف في موقع شمسان نيوز. أعد صياغة الخبر التالي من الصفر
@@ -3478,7 +3487,11 @@ def rewrite_article(title: str, body: str, category: str, source_feed: Optional[
         for key in ("title", "excerpt", "content"):
             if isinstance(data.get(key), str):
                 data[key] = normalize_model_text(data[key])
-        is_ypagency_source = source_feed in {RSS_YPAGENCY_FULL_URL, RSS_YPAGENCY_YEMEN_URL}
+        is_ypagency_source = source_feed in {
+            RSS_YPAGENCY_FULL_URL,
+            RSS_YPAGENCY_YEMEN_URL,
+            RSS_ALNAQABI_FULL_URL,
+        }
         if data.get("houthi_iran_exclude") is True and not is_ypagency_source:
             log.info(f"  🚫 [فلتر الحوثي/إيران] خبر هجومي خالص — استُبعد من النشر: {title[:60]}")
             return None

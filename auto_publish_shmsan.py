@@ -26,6 +26,8 @@ from shmsan_news_bot import (
     RSS_ALQUDS_SPORT_CATEGORY,
     RSS_YPAGENCY_FULL_URL,
     RSS_YPAGENCY_FULL_CATEGORY,
+    RSS_ALNAQABI_FULL_URL,
+    RSS_ALNAQABI_FULL_CATEGORY,
     RSS_YPAGENCY_YEMEN_URL,
     RSS_YPAGENCY_YEMEN_CATEGORY,
     NO_REWRITE_CATEGORIES,
@@ -81,6 +83,8 @@ SELECTED_FEEDS = {
     # 🆕 وكالة الصحافة اليمنية — قسم المحافظات المحتلة فقط، ويُنشر في
     # "أخبار وتقارير" كما هو محدد في المصدر.
     RSS_YPAGENCY_FULL_URL: RSS_YPAGENCY_FULL_CATEGORY,
+    # 🆕 النقابي الجنوبي — استخراج كامل والنشر في أخبار وتقارير.
+    RSS_ALNAQABI_FULL_URL: RSS_ALNAQABI_FULL_CATEGORY,
     # ⏸️ فيد وكالة اليمن — اليمن السياسية موقوف مؤقتاً — أعد السطرين لتفعيله من جديد:
     # RSS_YPAGENCY_YEMEN_URL: RSS_YPAGENCY_YEMEN_CATEGORY,
     # ⏸️ المساء برس مستبعد مؤقتاً — أعد هذا السطر لتفعيله من جديد:

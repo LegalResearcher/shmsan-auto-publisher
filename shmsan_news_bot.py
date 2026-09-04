@@ -3194,11 +3194,10 @@ def build_prompt(title: str, body: str, category: str, source_feed: Optional[str
     is_ypagency_source = source_feed in {
         RSS_YPAGENCY_FULL_URL,
         RSS_YPAGENCY_YEMEN_URL,
-        RSS_ALNAQABI_FULL_URL,
     }
 
-    # أخبار وكالة اليمن والنقابي الجنوبي تُعالج بمنطق المصدر الخام: المرجع الوحيد
-    # هو نص الخبر المستخرج، ولا يُسمح بدمج أخبار أخرى أو اختراع خلفية/خاتمة.
+    # أخبار وكالة اليمن تُعالج بمنطق المصدر الخام: المرجع الوحيد هو نص الخبر
+    # المستخرج، ولا يُسمح بدمج أخبار أخرى أو اختراع خلفية/خاتمة.
     if is_ypagency_source:
         return f"""
 أنت محرر صحفي محترف في موقع شمسان نيوز. أعد صياغة الخبر التالي من الصفر
@@ -3490,7 +3489,6 @@ def rewrite_article(title: str, body: str, category: str, source_feed: Optional[
         is_ypagency_source = source_feed in {
             RSS_YPAGENCY_FULL_URL,
             RSS_YPAGENCY_YEMEN_URL,
-            RSS_ALNAQABI_FULL_URL,
         }
         if data.get("houthi_iran_exclude") is True and not is_ypagency_source:
             log.info(f"  🚫 [فلتر الحوثي/إيران] خبر هجومي خالص — استُبعد من النشر: {title[:60]}")

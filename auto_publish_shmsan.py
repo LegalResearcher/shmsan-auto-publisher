@@ -76,7 +76,8 @@ from shmsan_news_bot import (
 SELECTED_FEEDS = {
     # ⏸️ فيد عدن تايم موقوف مؤقتاً — أعد السطر لتفعيله من جديد:
     # RSS_ADEN_TM_FULL_URL: RSS_ADEN_TM_FULL_CATEGORY,
-    RSS_ALQUDS_SPORT_URL: RSS_ALQUDS_SPORT_CATEGORY,
+    # ⏸️ فيد القدس الرياضية موقوف مؤقتاً — أعد السطر لتفعيله من جديد:
+    # RSS_ALQUDS_SPORT_URL: RSS_ALQUDS_SPORT_CATEGORY,
     # 🆕 وكالة الصحافة اليمنية — قسم المحافظات المحتلة فقط، ويُنشر في
     # "أخبار وتقارير" كما هو محدد في المصدر.
     RSS_YPAGENCY_FULL_URL: RSS_YPAGENCY_FULL_CATEGORY,

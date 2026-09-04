@@ -114,7 +114,16 @@ BLOCKED_AUTO_TOPIC_KEYWORDS = [
 
 def _is_blocked_auto_topic(it: dict) -> bool:
     text = f"{it.get('title', '')} {it.get('raw_body', '')}"
-    return any(kw in text for kw in BLOCKED_AUTO_TOPIC_KEYWORDS)
+    if it.get("source_feed") == RSS_ALNAQABI_FULL_URL:
+        # موقع النقابي الجنوبي يضيف هذه العبارة التعريفية إلى كل وصف RSS:
+        # «نرصد آخر أخبار الحدث الجنوبي العاجلة». كما يُسمح لهذا المصدر
+        # بعناوين «عاجل»، لذلك نُبقي بقية الكلمات الممنوعة فقط.
+        text = text.replace("نرصد أخر أخبار الحدث الجنوبي العاجلة", "")
+        text = text.replace("نرصد آخر أخبار الحدث الجنوبي العاجلة", "")
+        keywords = [kw for kw in BLOCKED_AUTO_TOPIC_KEYWORDS if kw != "عاجل"]
+    else:
+        keywords = BLOCKED_AUTO_TOPIC_KEYWORDS
+    return any(kw in text for kw in keywords)
 
 
 def run():

@@ -3214,7 +3214,7 @@ def build_title_only_prompt(title: str, body: str) -> str:
     return TITLE_ONLY_PROMPT.format(title=title, body=body)
 
 
-def build_prompt(title, raw_body, cat, source_feed=None):
+def build_prompt(title, raw_body, cat):
     # 1. تحديد طبيعة القسم والكلمات المفتاحية
     is_neutral_cat = any(keyword in cat for keyword in ["الرياضة", "رياضة", "منوعات", "شؤون دولية", "أسعار الصرف", "أسعار صرف العملات", "الذهب"])
     houthi_keywords = ["حوثي", "الحوثي", "صنعاء", "أنصار الله", "المليشيا", "المشاط", "الحوثيين", "اللجنة الثورية"]
@@ -3422,8 +3422,8 @@ def call_with_rotation(prompt_text: str, schema: dict = None) -> str:
             raise
 
 
-def rewrite_article(title: str, body: str, category: str, source_feed: Optional[str] = None) -> Optional[dict]:
-    prompt = build_prompt(title, body, category, source_feed=source_feed)
+def rewrite_article(title: str, body: str, category: str) -> Optional[dict]:
+    prompt = build_prompt(title, body, category)
     raw = call_with_rotation(prompt)
     try:
         import json
@@ -3433,11 +3433,7 @@ def rewrite_article(title: str, body: str, category: str, source_feed: Optional[
         for key in ("title", "excerpt", "content"):
             if isinstance(data.get(key), str):
                 data[key] = normalize_model_text(data[key])
-        is_ypagency_source = source_feed in {
-            RSS_YPAGENCY_FULL_URL,
-            RSS_YPAGENCY_YEMEN_URL,
-        }
-        if data.get("houthi_iran_exclude") is True and not is_ypagency_source:
+        if data.get("houthi_iran_exclude") is True:
             log.info(f"  🚫 [فلتر الحوثي/إيران] خبر هجومي خالص — استُبعد من النشر: {title[:60]}")
             return None
         return data
@@ -4040,8 +4036,7 @@ def main():
         else:
             log.info(f"✍️  إعادة صياغة: {it['title'][:60]}")
             try:
-                rewritten = rewrite_article(it["title"], it["raw_body"], post_category,
-                                             source_feed=it.get("source_feed"))
+                rewritten = rewrite_article(it["title"], it["raw_body"], post_category)
             except Exception as e:
                 log.error(f"  ❌ فشلت إعادة الصياغة: {e}")
                 fail += 1

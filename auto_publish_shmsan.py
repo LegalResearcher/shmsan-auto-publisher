@@ -203,7 +203,6 @@ def run():
                     it["title"],
                     it["raw_body"],
                     post_category,
-                    source_feed=it.get("source_feed"),
                 )
             except Exception as e:
                 log.error(f"  ❌ فشلت إعادة الصياغة: {e}")
@@ -319,6 +318,9 @@ def run():
     log.info("═" * 60)
     log.info(f"📊 نُشر: {ok} / فشل: {fail} / تُخُطّي: {skipped} / مكرر (قاعدة البيانات): {duplicate_count}")
     log.info("═" * 60)
+
+    if fail > 0 and ok == 0 and new_items:
+        raise RuntimeError(f"فشل نشر جميع الأخبار: {fail}")
 
 
 def _acquire_lock_or_exit():

@@ -3020,6 +3020,7 @@ def image_contains_blocked_logo(raw_bytes: bytes) -> bool:
 def get_post_image_url(
     source_image_url: Optional[str], article_url: Optional[str] = None,
     apply_watermark: bool = False, headline_text: Optional[str] = None,
+    source_image_bytes: Optional[bytes] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """يدير خط أنابيب الصورة كاملاً: تحميل → معالجة/ضغط → رفع إلى Supabase.
     يرجّع (رابط الصورة الرئيسية, رابط النسخة المربّعة) — أي منهما None عند
@@ -3031,17 +3032,20 @@ def get_post_image_url(
     لو apply_watermark=True: تُلصق علامة الجنوب فويس المائية على الصورة
     الرئيسية قبل الضغط والرفع (نفس منطق imageWatermark.ts بالموقع تماماً)
     — النسخة المربّعة تبقى دائماً بدون علامة مائية (مخصصة لـ thumbnails فقط)."""
-    if not source_image_url and article_url:
+    if not source_image_url and source_image_bytes is None and article_url:
         log.info("  ℹ️  لا يوجد رابط صورة بالفيد — محاولة جلبها من صفحة الخبر مباشرة (og:image)...")
         source_image_url = fetch_og_image(article_url)
 
-    if not source_image_url:
+    if not source_image_url and source_image_bytes is None:
         log.info("  ℹ️  لا يوجد رابط صورة بهذا الخبر — سيُترك حقل image_url فارغاً.")
         return None, None
 
-    log.info(f"  🔗 رابط الصورة الأصلي: {source_image_url[:90]}")
+    if source_image_url:
+        log.info(f"  🔗 رابط الصورة الأصلي: {source_image_url[:90]}")
 
-    raw_bytes = download_image_bytes(source_image_url)
+    raw_bytes = source_image_bytes
+    if raw_bytes is None and source_image_url:
+        raw_bytes = download_image_bytes(source_image_url)
     if not raw_bytes:
         log.warning("  ⚠️  تعذّر تحميل الصورة — سيُترك حقل image_url فارغاً.")
         return None, None

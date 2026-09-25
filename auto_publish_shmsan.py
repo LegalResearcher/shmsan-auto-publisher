@@ -64,6 +64,13 @@ from shmsan_news_bot import (
     word_stats,
     extract_keywords,
 )
+from telegram_source import (
+    TelegramFileTooLargeError,
+    commit_telegram_cursor,
+    download_telegram_photo,
+    fetch_telegram_items,
+    is_configured as is_telegram_source_configured,
+)
 
 # ══════════════════════════════════════════════════════════════════════
 #  🔒 نسخة تلقائية — تعمل فقط على المصادر التي لا تحتاج تحديث ملفات XML
@@ -143,6 +150,16 @@ def run():
     recent_published = get_recent_published_titles(hours=24) + get_recent_published_titles_from_db(hours=24)
 
     items = collect_recent_items(SELECTED_FEEDS)
+    telegram_cursor = None
+    try:
+        if is_telegram_source_configured():
+            telegram_items, telegram_cursor = fetch_telegram_items()
+            items.extend(telegram_items)
+            log.info(f"📨 منشورات تيليجرام الجديدة من قناة الجنوب فويس: {len(telegram_items)}")
+    except Exception as e:
+        # A Telegram outage or partial setup must not stop Shamsan's RSS feeds.
+        log.error(f"تعذّر جلب منشورات قناة الجنوب فويس؛ ستستمر فيدات RSS: {e}")
+
     new_items = [
         it for it in items
         if it["link"] not in existing_urls and it["link"] not in blocked_links
@@ -160,10 +177,16 @@ def run():
 
     if not new_items:
         log.info("لا يوجد أخبار جديدة حالياً.")
+        commit_telegram_cursor(telegram_cursor)
         return
 
-    log.info(f"🧲 استخراج النص الكامل لكل خبر من صفحته ({len(new_items)} خبر)...")
-    apply_full_extraction(new_items)
+    # RSS stories are expanded from their article pages. Telegram posts already
+    # contain the complete raw message and their private t.me link is not an
+    # article page, so only RSS items go through the web extractor.
+    rss_items = [it for it in new_items if not it.get("_telegram_source")]
+    if rss_items:
+        log.info(f"🧲 استخراج النص الكامل لأخبار RSS من صفحاتها ({len(rss_items)} خبر)...")
+        apply_full_extraction(rss_items)
     excluded_count = sum(1 for it in new_items if it.get("_excluded"))
     if excluded_count:
         new_items = [it for it in new_items if not it.get("_excluded")]
@@ -181,6 +204,7 @@ def run():
 
     if not new_items:
         log.info("لا يوجد أخبار جديدة حالياً بعد الاستبعاد.")
+        commit_telegram_cursor(telegram_cursor)
         return
 
     ok = fail = skipped = duplicate_count = 0
@@ -234,6 +258,16 @@ def run():
 
         formatted_content = format_content_paragraphs(final_content)
         item_date = it["pub_date"].isoformat()
+        telegram_image_bytes = None
+        if it.get("_telegram_photo_file_id"):
+            try:
+                telegram_image_bytes = download_telegram_photo(it["_telegram_photo_file_id"])
+            except TelegramFileTooLargeError as e:
+                log.warning(f"  ⚠️  {e} سيُنشر الخبر النصي دون صورة.")
+            except Exception as e:
+                log.error(f"  ❌ تعذّر تنزيل صورة منشور تيليجرام؛ سيُعاد الخبر في التشغيل التالي: {e}")
+                fail += 1
+                continue
 
         # 🗂️ شمسان نيوز يخزّن القسم كـ category_id (UUID) — لازم نحله قبل
         # النشر، وإلا يُتخطى الخبر (بدل نشره بلا قسم فيختفي من كل الموقع).
@@ -246,6 +280,10 @@ def run():
             log.info(f"  🚫 قسم «{post_category}»: يُنشر بدون صورة دائماً — تم تجاوز جلب/رفع الصورة.")
             image_url = None
             image_url_square = None
+        elif it.get("_telegram_source") and telegram_image_bytes is None:
+            # A private Telegram link is not an article page to scrape for og:image.
+            image_url = None
+            image_url_square = None
         else:
             # 🖼️ صورة الخبر الأصلية من المصدر (RSS) — استُخرجت مسبقاً وقت
             # جلب الفيد عبر extract_image_url() وخُزّنت بـit["image_url"].
@@ -255,6 +293,7 @@ def run():
                 it.get("image_url"),
                 headline_text=final_title,
                 article_url=it.get("link"),
+                source_image_bytes=telegram_image_bytes,
             )
 
         # ✅ نفس منطق shmsan_news_bot.py الرئيسي: word_count/reading_time
@@ -314,6 +353,12 @@ def run():
             log_discovery_ready([canonical_url])
         else:
             fail += 1
+
+    # Leave Telegram updates pending whenever any item failed, so the next
+    # scheduled run retries it. Published links and deliberate skips are safe
+    # to encounter again and are deduplicated by Shamsan's existing checks.
+    if telegram_cursor is not None and fail == 0:
+        commit_telegram_cursor(telegram_cursor)
 
     log.info("═" * 60)
     log.info(f"📊 نُشر: {ok} / فشل: {fail} / تُخُطّي: {skipped} / مكرر (قاعدة البيانات): {duplicate_count}")

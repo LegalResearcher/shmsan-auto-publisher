@@ -32,5 +32,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_SOURCE_BOT_TOKEN: ${{ secrets.TELEGRAM_SOURCE_BOT_TOKEN }}
+          TELEGRAM_SOURCE_CHAT_ID: ${{ vars.TELEGRAM_SOURCE_CHAT_ID }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
         run: python auto_publish_shmsan.py

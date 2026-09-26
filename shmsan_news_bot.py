@@ -3325,7 +3325,7 @@ def build_title_only_prompt(title: str, body: str) -> str:
     return TITLE_ONLY_PROMPT.format(title=title, body=body)
 
 
-def build_prompt(title, raw_body, cat, bypass_content_filters=False):
+def build_prompt(title, raw_body, cat, bypass_content_filters=False, video_url=None):
     if bypass_content_filters:
         return f"""
 أنت محرر صحفي في موقع شمسان نيوز. هذا النص وارد من قناة Telegram موثوقة.
@@ -3334,6 +3334,7 @@ def build_prompt(title, raw_body, cat, bypass_content_filters=False):
 إضافة معلومات من خارج المصدر. الاستثناء الوحيد: لا تطبق قيود الحظر أو الاستبعاد
 أو Gatekeeping على هذا الخبر، ولا تصفه بأنه محظور أو بروتوكولي، ولا تُرجع
 EXCLUDED_OFFICIAL_NEWS. اجعل houthi_iran_exclude=false.
+{f'رابط الفيديو محفوظ في حقل خارجي؛ لا تذكره أو تنسخه داخل title أو excerpt أو content: {video_url}' if video_url else ''}
 أعد JSON فقط بهذه الحقول:
 {{
   "title": "عنوان صحفي محرر",
@@ -3611,12 +3612,14 @@ def rewrite_article(
     *,
     bypass_houthi_iran_filter: bool = False,
     bypass_content_filters: bool = False,
+    video_url: Optional[str] = None,
 ) -> Optional[dict]:
     prompt = build_prompt(
         title,
         body,
         category,
         bypass_content_filters=bypass_content_filters,
+        video_url=video_url,
     )
     raw = call_with_rotation(prompt)
     try:
@@ -3627,6 +3630,11 @@ def rewrite_article(
         for key in ("title", "excerpt", "content"):
             if isinstance(data.get(key), str):
                 data[key] = normalize_model_text(data[key])
+        if video_url:
+            video_pattern = re.escape(video_url.rstrip(".,؛،"))
+            for key in ("excerpt", "content"):
+                if isinstance(data.get(key), str):
+                    data[key] = re.sub(video_pattern, "", data[key])
         if (
             data.get("houthi_iran_exclude") is True
             and not bypass_houthi_iran_filter

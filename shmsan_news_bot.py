@@ -1702,12 +1702,41 @@ def _normalize_title_for_dedup(title: str) -> str:
     return t
 
 
+def _handle_duplicate_telegram_media(
+    item: dict,
+    match_index: int,
+    history_count: int,
+    kept: list[dict],
+    kept_titles: list[str],
+    duplicates_out: Optional[list[dict]],
+) -> None:
+    """Preserve Telegram media when title dedup discards the story item."""
+    media_keys = ("_telegram_photo_file_id", "_telegram_video_url")
+    if match_index < history_count:
+        if duplicates_out is not None and any(item.get(key) for key in media_keys):
+            item["_duplicate_match_title"] = kept_titles[match_index]
+            duplicates_out.append(item)
+        return
+
+    target = kept[match_index - history_count]
+    target["_telegram_media_source"] = True
+    for key in media_keys:
+        if item.get(key):
+            target[key] = item[key]
+    if item.get("_telegram_update_id"):
+        target["_telegram_update_id"] = max(
+            int(target.get("_telegram_update_id") or 0),
+            int(item["_telegram_update_id"]),
+        )
+
+
 def remove_duplicate_news(
     items: list[dict],
     threshold: float = DUPLICATE_TITLE_THRESHOLD,
     embedding_threshold: float = DUPLICATE_EMBEDDING_THRESHOLD,
     time_window_minutes: int = DUPLICATE_TIME_WINDOW_MINUTES,
     history_items: Optional[list[dict]] = None,
+    duplicates_out: Optional[list[dict]] = None,
 ) -> list[dict]:
     """يستبعد الأخبار المكررة (نفس الحدث من أكثر من مصدر) بشرطين معاً:
     تشابه دلالي مرتفع جداً بين متجهي العنوانين (Gemini embedding) + تقارب
@@ -1727,6 +1756,7 @@ def remove_duplicate_news(
     أن يحمل "embedding" (متجه) بجانب "title" و"pub_date"."""
     kept: list[dict] = []
     kept_norm_titles: list[str] = []
+    kept_titles: list[str] = []
     kept_pub_dates: list[Optional[datetime]] = []
     kept_embeddings: list[Optional[list[float]]] = []
     time_window = timedelta(minutes=time_window_minutes)
@@ -1736,6 +1766,7 @@ def remove_duplicate_news(
         pub_date = h.get("pub_date")
         if norm and pub_date is not None:
             kept_norm_titles.append(norm)
+            kept_titles.append(h.get("title", ""))
             kept_pub_dates.append(pub_date)
             kept_embeddings.append(h.get("embedding"))
 
@@ -1767,6 +1798,9 @@ def remove_duplicate_news(
                     method_label = "نصي احتياطي"
                 if is_match:
                     is_dup = True
+                    _handle_duplicate_telegram_media(
+                        it, i, history_count, kept, kept_titles, duplicates_out
+                    )
                     source = "منشور سابقاً" if i < history_count else "بنفس الدفعة"
                     log.info(
                         f"  🔁 خبر مكرر تم استبعاده (تشابه {method_label} {sim:.0%} + تقارب زمني، {source}): "
@@ -1777,6 +1811,7 @@ def remove_duplicate_news(
             continue
         kept.append(it)
         kept_norm_titles.append(norm)
+        kept_titles.append(it.get("title", ""))
         kept_pub_dates.append(pub_date)
         kept_embeddings.append(emb)
 
@@ -2279,13 +2314,49 @@ def sb_insert(record: dict) -> Optional[str]:
 def get_published_post_by_source_url(source_url: str) -> Optional[dict]:
     """يبحث عن مقال شمسان المنشور المطابق لرابط مصدر Telegram."""
     url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
-    params = {"select": "id,title,status,cover_image", "source_url": f"eq.{source_url}", "status": "eq.published", "limit": "1"}
+    params = {"select": "id,title,status,cover_image,external_video_url", "source_url": f"eq.{source_url}", "status": "eq.published", "limit": "1"}
     response = requests.get(url, headers=sb_headers(), params=params, timeout=REQUEST_TIMEOUT)
     if response.status_code != 200:
         log.error("❌ تعذّر البحث عن مقال Telegram المنشور [%s]: %s", response.status_code, response.text[:200])
         response.raise_for_status()
     rows = response.json()
     return rows[0] if rows else None
+
+
+def get_published_post_by_title(title: str) -> Optional[dict]:
+    """Find the recent published post matching a dedup-history title."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=DUPLICATE_DB_CHECK_WINDOW_HOURS)).isoformat()
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+    params = {
+        "select": "id,title,status,cover_image,external_video_url,created_at",
+        "created_at": f"gte.{cutoff}",
+        "status": "eq.published",
+        "order": "created_at.desc",
+        "limit": "500",
+    }
+    response = requests.get(url, headers=sb_headers(), params=params, timeout=REQUEST_TIMEOUT)
+    if response.status_code != 200:
+        log.error(
+            "❌ تعذّر فحص المقالات الحديثة لإرفاق وسائط Telegram [%s]: %s",
+            response.status_code,
+            response.text[:200],
+        )
+        response.raise_for_status()
+    norm_title = _normalize_title_for_dedup(title)
+    best_post = None
+    best_similarity = 0.0
+    for row in response.json():
+        row_title = _normalize_title_for_dedup(row.get("title", ""))
+        if row_title == norm_title:
+            return row
+        similarity = difflib.SequenceMatcher(None, norm_title, row_title).ratio()
+        if similarity > best_similarity:
+            best_similarity = similarity
+            best_post = row
+    if best_similarity >= 0.75:
+        log.info("  ↳ رُبط مرفق Telegram بأقرب مقال حديث (تشابه عنوان احتياطي %.0f%%).", best_similarity * 100)
+        return best_post
+    return None
 
 
 def update_published_post_cover_image(post_id: str, image_url: str) -> bool:

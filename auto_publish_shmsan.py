@@ -39,6 +39,7 @@ from shmsan_news_bot import (
     check_and_notify_scheduled_posts,
     get_existing_source_urls,
     get_published_post_by_source_url,
+    get_published_post_by_title,
     get_recent_published_titles,
     get_recent_published_titles_from_db,
     log_published_title,
@@ -183,6 +184,69 @@ def _process_late_telegram_photo_replies(photo_replies: list[dict]) -> bool:
     return retry_required
 
 
+def _process_duplicate_telegram_media(duplicate_items: list[dict]) -> bool:
+    """Attach media from a deduplicated Telegram item to its published match."""
+    retry_required = False
+    for item in duplicate_items:
+        match_title = item.get("_duplicate_match_title")
+        if not match_title:
+            continue
+        try:
+            published_post = get_published_post_by_title(match_title)
+        except Exception as error:
+            log.error(
+                "❌ تعذّر العثور على الخبر المنشور المطابق لإرفاق وسائط Telegram؛ ستعاد المحاولة (%s).",
+                type(error).__name__,
+            )
+            retry_required = True
+            continue
+        if not published_post:
+            log.warning("⚠️ لم يُعثر على سجل منشور مطابق لعنوان التكرار «%s».", match_title[:70])
+            continue
+
+        video_url = item.get("_telegram_video_url")
+        if video_url and published_post.get("external_video_url") != video_url:
+            try:
+                if not update_published_post_video_url(published_post["id"], video_url):
+                    retry_required = True
+                    continue
+                log.info("✅ أُرفق رابط فيديو Telegram بخبر مطابق «%s».", published_post.get("title", match_title)[:70])
+            except Exception as error:
+                log.error("❌ تعذّر تحديث فيديو المقال المطابق؛ ستعاد المحاولة (%s).", type(error).__name__)
+                retry_required = True
+                continue
+
+        photo_file_id = item.get("_telegram_photo_file_id")
+        if not photo_file_id:
+            continue
+        try:
+            source_image = download_telegram_photo(photo_file_id)
+            image_url, _ = get_post_image_url(
+                None,
+                headline_text=published_post.get("title") or match_title,
+                source_image_bytes=source_image,
+            )
+        except TelegramFileTooLargeError as error:
+            log.warning("⚠️ صورة Telegram للخبر المكرر أكبر من حد التنزيل ولن تُرفق: %s", error)
+            continue
+        except Exception as error:
+            log.error("❌ تعذّر تنزيل/معالجة صورة الخبر المكرر؛ ستعاد المحاولة (%s).", type(error).__name__)
+            retry_required = True
+            continue
+        if not image_url:
+            log.warning("⚠️ لم تنتج معالجة صورة Telegram للخبر المكرر غلافًا.")
+            continue
+        try:
+            if not update_published_post_cover_image(published_post["id"], image_url):
+                retry_required = True
+                continue
+            log.info("✅ أُرفقت صورة Telegram بخبر مطابق «%s».", published_post.get("title", match_title)[:70])
+        except Exception as error:
+            log.error("❌ تعذّر تحديث صورة المقال المطابق؛ ستعاد المحاولة (%s).", type(error).__name__)
+            retry_required = True
+    return retry_required
+
+
 def run():
     log.info("═" * 60)
     log.info("  📰  شمسان نيوز — تشغيل تلقائي (عدن تايم + فيدا وكالة اليمن + المساء برس)")
@@ -221,7 +285,17 @@ def run():
         it for it in items
         if it["link"] not in existing_urls and it["link"] not in blocked_links
     ]
-    new_items = remove_duplicate_news(new_items, history_items=recent_published)
+    duplicate_media_items: list[dict] = []
+    new_items = remove_duplicate_news(
+        new_items,
+        history_items=recent_published,
+        duplicates_out=duplicate_media_items,
+    )
+    if duplicate_media_items:
+        telegram_retry_required = (
+            _process_duplicate_telegram_media(duplicate_media_items)
+            or telegram_retry_required
+        )
 
     blocked_topic_count = sum(1 for it in new_items if _is_blocked_auto_topic(it))
     if blocked_topic_count:
@@ -288,7 +362,7 @@ def run():
                     post_category,
                     bypass_houthi_iran_filter=bool(it.get("_telegram_source")),
                     bypass_content_filters=bool(it.get("_telegram_source")),
-                    video_url=it.get("_telegram_video_url") if it.get("_telegram_source") else None,
+                    video_url=it.get("_telegram_video_url"),
                 )
             except Exception as e:
                 log.error(f"  ❌ فشلت إعادة الصياغة: {e}")
@@ -319,6 +393,13 @@ def run():
                 f"  🔁 تخطي — يشابه خبراً منشوراً سابقاً (تشابه "
                 f"{dup_match['similarity_score']:.0%}): «{dup_match['title'][:60]}»"
             )
+            if it.get("_telegram_photo_file_id") or it.get("_telegram_video_url"):
+                media_item = dict(it)
+                media_item["_duplicate_match_title"] = dup_match["title"]
+                telegram_retry_required = (
+                    _process_duplicate_telegram_media([media_item])
+                    or telegram_retry_required
+                )
             duplicate_count += 1
             continue
 

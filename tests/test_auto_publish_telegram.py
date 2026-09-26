@@ -86,6 +86,7 @@ class AutoPublishTelegramTests(unittest.TestCase):
             "عنوان خبر تجريبي",
             "عنوان خبر تجريبي\n\nالنص الخام الكامل من المنشور.",
             "أخبار وتقارير",
+            bypass_houthi_iran_filter=False,
         )
         mocked["sb_insert"].assert_called_once()
         mocked["commit_telegram_cursor"].assert_called_once_with(91)
@@ -114,6 +115,7 @@ class AutoPublishTelegramTests(unittest.TestCase):
         with ExitStack() as stack:
             mocked = self._patch_run_dependencies(stack, item)
             publisher.run()
+        self.assertTrue(mocked["rewrite_article"].call_args.kwargs["bypass_houthi_iran_filter"])
         record = mocked["sb_insert"].call_args.args[0]
         self.assertEqual(record["external_video_url"], "https://youtu.be/video123")
 

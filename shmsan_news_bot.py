@@ -3583,7 +3583,13 @@ def call_with_rotation(prompt_text: str, schema: dict = None) -> str:
             raise
 
 
-def rewrite_article(title: str, body: str, category: str) -> Optional[dict]:
+def rewrite_article(
+    title: str,
+    body: str,
+    category: str,
+    *,
+    bypass_houthi_iran_filter: bool = False,
+) -> Optional[dict]:
     prompt = build_prompt(title, body, category)
     raw = call_with_rotation(prompt)
     try:
@@ -3594,7 +3600,7 @@ def rewrite_article(title: str, body: str, category: str) -> Optional[dict]:
         for key in ("title", "excerpt", "content"):
             if isinstance(data.get(key), str):
                 data[key] = normalize_model_text(data[key])
-        if data.get("houthi_iran_exclude") is True:
+        if data.get("houthi_iran_exclude") is True and not bypass_houthi_iran_filter:
             log.info(f"  🚫 [فلتر الحوثي/إيران] خبر هجومي خالص — استُبعد من النشر: {title[:60]}")
             return None
         return data

@@ -286,9 +286,8 @@ def run():
                     it["title"],
                     it["raw_body"],
                     post_category,
-                    bypass_houthi_iran_filter=bool(
-                        it.get("_telegram_source") and it.get("_telegram_video_url")
-                    ),
+                    bypass_houthi_iran_filter=bool(it.get("_telegram_source")),
+                    bypass_content_filters=bool(it.get("_telegram_source")),
                 )
             except Exception as e:
                 log.error(f"  ❌ فشلت إعادة الصياغة: {e}")

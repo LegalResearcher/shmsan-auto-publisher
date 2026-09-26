@@ -66,6 +66,19 @@ class TelegramImagePipelineTests(unittest.TestCase):
             retry = publisher._process_late_telegram_photo_replies([reply])
         self.assertTrue(retry)
 
+    def test_late_video_reply_updates_published_video_field(self):
+        reply = {
+            "link": "https://t.me/c/4430613399/27",
+            "_telegram_video_url": "https://youtu.be/video123",
+        }
+        with (
+            patch.object(publisher, "get_published_post_by_source_url", return_value={"id": "post-id", "title": "عنوان الخبر"}),
+            patch.object(publisher, "update_published_post_video_url", return_value=True) as update_video,
+        ):
+            retry = publisher._process_late_telegram_photo_replies([reply])
+        self.assertFalse(retry)
+        update_video.assert_called_once_with("post-id", "https://youtu.be/video123")
+
 
 if __name__ == "__main__":
     unittest.main()

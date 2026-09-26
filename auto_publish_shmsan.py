@@ -63,6 +63,7 @@ from shmsan_news_bot import (
     send_to_telegram,
     log_discovery_ready,
     update_published_post_cover_image,
+    update_published_post_video_url,
     word_stats,
     extract_keywords,
 )
@@ -146,8 +147,21 @@ def _process_late_telegram_photo_replies(photo_replies: list[dict]) -> bool:
             retry_required = True
             continue
         if not published_post:
-            log.info("ℹ️ الخبر الأصلي لصورة رد Telegram غير منشور بعد؛ ستعاد معالجته لاحقاً.")
+            log.info("ℹ️ الخبر الأصلي لرد Telegram غير منشور بعد؛ ستعاد معالجته لاحقاً.")
             retry_required = True
+            continue
+        video_url = reply.get("_telegram_video_url")
+        if video_url:
+            try:
+                if not update_published_post_video_url(published_post["id"], video_url):
+                    retry_required = True
+                    continue
+                log.info("✅ حُدّث رابط فيديو الخبر المنشور «%s».", published_post.get("title", "")[:70])
+            except Exception as error:
+                log.error("❌ تعذّر تحديث رابط فيديو Telegram؛ ستعاد المحاولة (%s).", type(error).__name__)
+                retry_required = True
+                continue
+        if not reply.get("_telegram_photo_file_id"):
             continue
         try:
             source_image = download_telegram_photo(reply["_telegram_photo_file_id"])
@@ -365,6 +379,7 @@ def run():
             # الأخبار ولبناء رابط المقال — نفس منطق shmsan_news_bot.py الرئيسي.
             "published_at": item_date,
             "cover_image": image_url,
+            "external_video_url": it.get("_telegram_video_url"),
             "seo_title": generate_meta_title(final_title),
             "seo_description": generate_meta_description(final_excerpt),
             "is_featured": post_category in FEATURED_SLIDER_CATEGORIES,

@@ -108,6 +108,15 @@ class AutoPublishTelegramTests(unittest.TestCase):
         record = mocked["sb_insert"].call_args.args[0]
         self.assertEqual(record["cover_image"], "https://storage.example/photo.webp")
 
+    def test_telegram_video_url_is_saved_in_external_video_field(self):
+        item = self._item()
+        item["_telegram_video_url"] = "https://youtu.be/video123"
+        with ExitStack() as stack:
+            mocked = self._patch_run_dependencies(stack, item)
+            publisher.run()
+        record = mocked["sb_insert"].call_args.args[0]
+        self.assertEqual(record["external_video_url"], "https://youtu.be/video123")
+
     def test_processing_failure_does_not_commit_telegram_cursor(self):
         with ExitStack() as stack:
             mocked = self._patch_run_dependencies(

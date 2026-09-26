@@ -2310,6 +2310,28 @@ def update_published_post_cover_image(post_id: str, image_url: str) -> bool:
     return any(str(row.get("id")) == str(post_id) for row in rows or [])
 
 
+def update_published_post_video_url(post_id: str, video_url: str) -> bool:
+    """يحدّث رابط الفيديو الخارجي للمقال المنشور."""
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+    response = requests.patch(
+        url,
+        headers={**sb_headers(), "Prefer": "return=representation"},
+        params={"id": f"eq.{post_id}", "select": "id"},
+        json={"external_video_url": video_url, "updated_at": datetime.now(timezone.utc).isoformat()},
+        timeout=REQUEST_TIMEOUT,
+    )
+    if response.status_code not in (200, 204):
+        log.error("❌ فشل تحديث رابط فيديو مقال Telegram [%s]: %s", response.status_code, response.text[:200])
+        return False
+    if response.status_code == 204:
+        return True
+    try:
+        rows = response.json()
+    except ValueError:
+        rows = []
+    return any(str(row.get("id")) == str(post_id) for row in rows or [])
+
+
 # ══════════════════════════════════════════════════════════════════════
 #  ✍️  ربط مقالات الرأي بجدول authors (لإظهار بطاقة "بقلم الكاتب" بالموقع)
 # ══════════════════════════════════════════════════════════════════════

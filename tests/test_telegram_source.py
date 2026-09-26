@@ -12,6 +12,7 @@ from telegram_source import (
     _to_news_item,
     download_telegram_photo,
     fetch_telegram_items,
+    extract_video_url,
     is_configured,
     merge_photo_replies_with_news_items,
 )
@@ -35,6 +36,33 @@ class FakeResponse:
 
 
 class TelegramSourceTests(unittest.TestCase):
+    def test_extracts_supported_video_url(self):
+        self.assertEqual(
+            extract_video_url("شاهد الفيديو https://youtu.be/example123."),
+            "https://youtu.be/example123",
+        )
+        self.assertEqual(extract_video_url("رابط صورة https://example.com/photo.jpg"), None)
+
+    def test_video_url_on_normal_post_is_carried_to_item(self):
+        item = _to_news_item({"update_id": 101, "channel_post": {
+            "message_id": 51, "date": 1_750_000_000, "chat": {"id": -1001234567890},
+            "text": "عنوان الخبر\nhttps://www.youtube.com/watch?v=abc123"}},
+            "-1001234567890")
+        self.assertEqual(item["_telegram_video_url"], "https://www.youtube.com/watch?v=abc123")
+
+    def test_video_reply_is_merged_into_original_news_item(self):
+        original = _to_news_item({"update_id": 102, "channel_post": {
+            "message_id": 52, "date": 1_750_000_000, "chat": {"id": -1001234567890},
+            "text": "عنوان خبر الفيديو\nمتن الخبر."}}, "-1001234567890")
+        reply = _to_news_item({"update_id": 103, "channel_post": {
+            "message_id": 53, "date": 1_750_000_100, "chat": {"id": -1001234567890},
+            "text": "https://youtu.be/video123",
+            "reply_to_message": {"message_id": 52, "date": 1_750_000_000,
+                "chat": {"id": -1001234567890}, "text": "عنوان خبر الفيديو\nمتن الخبر."}}},
+            "-1001234567890")
+        news, late = merge_photo_replies_with_news_items([original, reply])
+        self.assertEqual(late, [])
+        self.assertEqual(news[0]["_telegram_video_url"], "https://youtu.be/video123")
     def test_cursor_key_is_independent_for_shmsan_reader(self):
         self.assertEqual(CURSOR_KEY, "shmsan_janoub_voice_channel")
 

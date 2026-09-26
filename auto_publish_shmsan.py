@@ -38,6 +38,7 @@ from shmsan_news_bot import (
     check_system_logs_size,
     check_and_notify_scheduled_posts,
     get_existing_source_urls,
+    get_published_post_by_source_url,
     get_recent_published_titles,
     get_recent_published_titles_from_db,
     log_published_title,
@@ -61,6 +62,7 @@ from shmsan_news_bot import (
     build_canonical_url,
     send_to_telegram,
     log_discovery_ready,
+    update_published_post_cover_image,
     word_stats,
     extract_keywords,
 )
@@ -70,6 +72,7 @@ from telegram_source import (
     download_telegram_photo,
     fetch_telegram_items,
     is_configured as is_telegram_source_configured,
+    merge_photo_replies_with_news_items,
 )
 
 # ══════════════════════════════════════════════════════════════════════
@@ -133,6 +136,39 @@ def _is_blocked_auto_topic(it: dict) -> bool:
     return any(kw in text for kw in keywords)
 
 
+def _process_late_telegram_photo_replies(photo_replies: list[dict]) -> bool:
+    retry_required = False
+    for reply in photo_replies:
+        try:
+            published_post = get_published_post_by_source_url(reply.get("link"))
+        except Exception as error:
+            log.error("❌ تعذّر العثور على مقال Telegram؛ ستعاد المحاولة (%s).", type(error).__name__)
+            retry_required = True
+            continue
+        if not published_post:
+            log.info("ℹ️ الخبر الأصلي لصورة رد Telegram غير منشور بعد؛ ستعاد معالجته لاحقاً.")
+            retry_required = True
+            continue
+        try:
+            source_image = download_telegram_photo(reply["_telegram_photo_file_id"])
+            image_url, _ = get_post_image_url(
+                None,
+                headline_text=published_post.get("title"),
+                source_image_bytes=source_image,
+            )
+            if not image_url or not update_published_post_cover_image(published_post["id"], image_url):
+                retry_required = True
+                continue
+        except TelegramFileTooLargeError as error:
+            log.warning("⚠️ صورة رد Telegram أكبر من حد التنزيل ولن تُرفق: %s", error)
+        except Exception as error:
+            log.error("❌ تعذّرت معالجة صورة رد Telegram؛ ستعاد المحاولة (%s).", type(error).__name__)
+            retry_required = True
+            continue
+        log.info("✅ أُلحقت صورة رد Telegram بالخبر المنشور «%s». ", published_post.get("title", "")[:70])
+    return retry_required
+
+
 def run():
     log.info("═" * 60)
     log.info("  📰  شمسان نيوز — تشغيل تلقائي (عدن تايم + فيدا وكالة اليمن + المساء برس)")
@@ -151,9 +187,16 @@ def run():
 
     items = collect_recent_items(SELECTED_FEEDS)
     telegram_cursor = None
+    telegram_retry_required = False
     try:
         if is_telegram_source_configured():
             telegram_items, telegram_cursor = fetch_telegram_items()
+            telegram_items, photo_replies = merge_photo_replies_with_news_items(
+                telegram_items,
+                existing_source_urls=existing_urls | blocked_links,
+            )
+            if photo_replies:
+                telegram_retry_required = _process_late_telegram_photo_replies(photo_replies)
             items.extend(telegram_items)
             log.info(f"📨 منشورات تيليجرام الجديدة من قناة الجنوب فويس: {len(telegram_items)}")
     except Exception as e:
@@ -177,7 +220,8 @@ def run():
 
     if not new_items:
         log.info("لا يوجد أخبار جديدة حالياً.")
-        commit_telegram_cursor(telegram_cursor)
+        if telegram_cursor is not None and not telegram_retry_required:
+            commit_telegram_cursor(telegram_cursor)
         return
 
     # RSS stories are expanded from their article pages. Telegram posts already
@@ -204,7 +248,8 @@ def run():
 
     if not new_items:
         log.info("لا يوجد أخبار جديدة حالياً بعد الاستبعاد.")
-        commit_telegram_cursor(telegram_cursor)
+        if telegram_cursor is not None and not telegram_retry_required:
+            commit_telegram_cursor(telegram_cursor)
         return
 
     ok = fail = skipped = duplicate_count = 0
@@ -230,10 +275,14 @@ def run():
                 )
             except Exception as e:
                 log.error(f"  ❌ فشلت إعادة الصياغة: {e}")
+                if it.get("_telegram_source"):
+                    telegram_retry_required = True
                 fail += 1
                 continue
 
             if not rewritten:
+                if it.get("_telegram_source"):
+                    telegram_retry_required = True
                 skipped += 1
                 continue
 
@@ -357,7 +406,7 @@ def run():
     # Leave Telegram updates pending whenever any item failed, so the next
     # scheduled run retries it. Published links and deliberate skips are safe
     # to encounter again and are deduplicated by Shamsan's existing checks.
-    if telegram_cursor is not None and fail == 0:
+    if telegram_cursor is not None and fail == 0 and not telegram_retry_required:
         commit_telegram_cursor(telegram_cursor)
 
     log.info("═" * 60)

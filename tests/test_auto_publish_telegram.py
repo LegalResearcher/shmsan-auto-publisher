@@ -48,6 +48,7 @@ class AutoPublishTelegramTests(unittest.TestCase):
         p("collect_recent_items", return_value=[])
         p("is_telegram_source_configured", return_value=True)
         p("fetch_telegram_items", return_value=([item], 91))
+        p("merge_photo_replies_with_news_items", side_effect=lambda items, existing_source_urls: (items, []))
         p("remove_duplicate_news", side_effect=lambda items, history_items: items)
         p("apply_full_extraction")
         p("rewrite_article", side_effect=rewrite_side_effect or None, return_value={

@@ -115,13 +115,7 @@ def _to_news_item(update: dict[str, Any], expected_chat_id: str) -> dict[str, An
     if str(chat.get("id", "")) != expected_chat_id:
         return None
 
-    # Telegram puts the full raw content in text (or caption when there is media).
     raw_text = (post.get("text") or post.get("caption") or "").strip()
-    if not raw_text:
-        return None
-
-    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-    title = lines[0] if lines else raw_text
     photo_sizes = post.get("photo") or []
     largest_photo = max(
         photo_sizes,
@@ -131,13 +125,44 @@ def _to_news_item(update: dict[str, Any], expected_chat_id: str) -> dict[str, An
         ),
         default=None,
     )
-    # Keep the complete source message as the raw body. This matches the
-    # full-extraction input contract and preserves all information for rewriting.
+    reply_to = post.get("reply_to_message") or {}
+    reply_to_message_id = reply_to.get("message_id")
+    is_photo_reply = bool(reply_to_message_id and largest_photo)
+    original_text = (reply_to.get("text") or reply_to.get("caption") or "").strip()
+    article_text = original_text if is_photo_reply and original_text else raw_text
+    if not article_text and not is_photo_reply:
+        return None
+
     message_id = int(post["message_id"])
     update_id = int(update["update_id"])
+    source_message_id = int(reply_to_message_id) if is_photo_reply else message_id
+    source_date = reply_to.get("date") if is_photo_reply and original_text else post.get("date")
     published_at = datetime.fromtimestamp(
-        int(post.get("date") or 0), tz=timezone.utc
+        int(source_date or 0), tz=timezone.utc
     )
+    if is_photo_reply:
+        lines = [line.strip() for line in article_text.splitlines() if line.strip()]
+        return {
+            "title": lines[0] if lines else article_text,
+            "link": _post_link(chat, source_message_id),
+            "pub_date": published_at,
+            "raw_body": article_text,
+            "source_feed": f"telegram://{expected_chat_id}",
+            "image_url": None,
+            "category": "أخبار وتقارير",
+            "author": None,
+            "_telegram_source": True,
+            "_telegram_photo_reply": True,
+            "_telegram_reply_message_id": message_id,
+            "_telegram_reply_to_message_id": int(reply_to_message_id),
+            "_telegram_update_id": update_id,
+            "_telegram_photo_file_id": largest_photo.get("file_id"),
+        }
+
+    if not raw_text:
+        return None
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    title = lines[0] if lines else raw_text
     return {
         "title": title,
         "link": _post_link(chat, message_id),
@@ -151,6 +176,35 @@ def _to_news_item(update: dict[str, Any], expected_chat_id: str) -> dict[str, An
         "_telegram_update_id": update_id,
         "_telegram_photo_file_id": (largest_photo or {}).get("file_id"),
     }
+
+
+def merge_photo_replies_with_news_items(
+    items: list[dict[str, Any]],
+    existing_source_urls: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Attach same-batch reply photos and return replies needing late handling."""
+    news_items = [item for item in items if not item.get("_telegram_photo_reply")]
+    news_by_link = {item.get("link"): item for item in news_items}
+    late_replies = []
+    existing_source_urls = existing_source_urls or set()
+    for reply in (item for item in items if item.get("_telegram_photo_reply")):
+        if reply.get("link") in existing_source_urls:
+            late_replies.append(reply)
+            continue
+        original = news_by_link.get(reply.get("link"))
+        if not original:
+            late_replies.append(reply)
+            continue
+        original["_telegram_photo_file_id"] = reply.get("_telegram_photo_file_id")
+        original["_telegram_update_id"] = max(
+            int(original.get("_telegram_update_id") or 0),
+            int(reply.get("_telegram_update_id") or 0),
+        )
+        logger.info(
+            "Attached Telegram reply photo to source post message_id=%s.",
+            reply.get("_telegram_reply_to_message_id"),
+        )
+    return news_items, late_replies
 
 
 def download_telegram_photo(file_id: str) -> bytes:

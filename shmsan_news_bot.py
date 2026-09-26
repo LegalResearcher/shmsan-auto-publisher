@@ -2274,6 +2274,43 @@ def sb_insert(record: dict) -> Optional[str]:
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  🖼️  تحديث غلاف مقال منشور من صورة رد Telegram
+# ══════════════════════════════════════════════════════════════════════
+def get_published_post_by_source_url(source_url: str) -> Optional[dict]:
+    """يبحث عن مقال شمسان المنشور المطابق لرابط مصدر Telegram."""
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+    params = {"select": "id,title,status,cover_image", "source_url": f"eq.{source_url}", "status": "eq.published", "limit": "1"}
+    response = requests.get(url, headers=sb_headers(), params=params, timeout=REQUEST_TIMEOUT)
+    if response.status_code != 200:
+        log.error("❌ تعذّر البحث عن مقال Telegram المنشور [%s]: %s", response.status_code, response.text[:200])
+        response.raise_for_status()
+    rows = response.json()
+    return rows[0] if rows else None
+
+
+def update_published_post_cover_image(post_id: str, image_url: str) -> bool:
+    """يحدّث غلاف المقال المنشور من صورة رد Telegram."""
+    url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+    response = requests.patch(
+        url,
+        headers={**sb_headers(), "Prefer": "return=representation"},
+        params={"id": f"eq.{post_id}", "select": "id"},
+        json={"cover_image": image_url, "updated_at": datetime.now(timezone.utc).isoformat()},
+        timeout=REQUEST_TIMEOUT,
+    )
+    if response.status_code not in (200, 204):
+        log.error("❌ فشل تحديث غلاف مقال Telegram [%s]: %s", response.status_code, response.text[:200])
+        return False
+    if response.status_code == 204:
+        return True
+    try:
+        rows = response.json()
+    except ValueError:
+        rows = []
+    return any(str(row.get("id")) == str(post_id) for row in rows or [])
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  ✍️  ربط مقالات الرأي بجدول authors (لإظهار بطاقة "بقلم الكاتب" بالموقع)
 # ══════════════════════════════════════════════════════════════════════
 

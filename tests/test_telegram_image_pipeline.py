@@ -14,6 +14,7 @@ os.chdir(_TEST_TMP.name)
 try:
     from shmsan_news_bot import get_post_image_url
     import shmsan_news_bot as shmsan
+    import auto_publish_shmsan as publisher
 finally:
     os.chdir(_ORIGINAL_CWD)
 
@@ -41,6 +42,29 @@ class TelegramImagePipelineTests(unittest.TestCase):
         upload.assert_called_once()
         download_url.assert_not_called()
         fetch_og.assert_not_called()
+
+    def test_late_reply_updates_published_cover(self):
+        reply = {"link": "https://t.me/c/4430613399/27", "_telegram_photo_file_id": "late-photo"}
+        with (
+            patch.object(publisher, "get_published_post_by_source_url", return_value={"id": "post-id", "title": "عنوان الخبر"}),
+            patch.object(publisher, "download_telegram_photo", return_value=b"photo"),
+            patch.object(publisher, "get_post_image_url", return_value=("https://cdn.example/cover.webp", None)),
+            patch.object(publisher, "update_published_post_cover_image", return_value=True) as update_cover,
+        ):
+            retry = publisher._process_late_telegram_photo_replies([reply])
+        self.assertFalse(retry)
+        update_cover.assert_called_once_with("post-id", "https://cdn.example/cover.webp")
+
+    def test_late_reply_cover_failure_preserves_retry(self):
+        reply = {"link": "https://t.me/c/4430613399/27", "_telegram_photo_file_id": "late-photo"}
+        with (
+            patch.object(publisher, "get_published_post_by_source_url", return_value={"id": "post-id", "title": "عنوان الخبر"}),
+            patch.object(publisher, "download_telegram_photo", return_value=b"photo"),
+            patch.object(publisher, "get_post_image_url", return_value=("https://cdn.example/cover.webp", None)),
+            patch.object(publisher, "update_published_post_cover_image", return_value=False),
+        ):
+            retry = publisher._process_late_telegram_photo_replies([reply])
+        self.assertTrue(retry)
 
 
 if __name__ == "__main__":

@@ -3591,7 +3591,7 @@ def call_gemini(prompt_text: str, schema: dict = None) -> str:
             else:
                 raise
 
-    raise RuntimeError("فشل الاتصال بعد كل المحاولات")
+    raise ModelUnavailable()
 
 
 def call_with_rotation(prompt_text: str, schema: dict = None) -> str:

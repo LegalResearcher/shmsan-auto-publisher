@@ -3419,6 +3419,7 @@ def build_prompt(title, raw_body, cat, bypass_content_filters=False, video_url=N
 ولا تُرجع EXCLUDED_OFFICIAL_NEWS.
 اجعل دائماً:
 houthi_iran_exclude=false.
+{f'رابط الفيديو محفوظ في حقل خارجي؛ لا تذكره أو تنسخه داخل title أو excerpt أو content: {video_url}' if video_url else ''}
 
 أعد JSON فقط بهذه الحقول:
 {{

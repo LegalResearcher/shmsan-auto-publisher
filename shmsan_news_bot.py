@@ -3407,13 +3407,19 @@ def build_title_only_prompt(title: str, body: str) -> str:
 def build_prompt(title, raw_body, cat, bypass_content_filters=False, video_url=None):
     if bypass_content_filters:
         return f"""
-أنت محرر صحفي في موقع الجنوب فويس. هذا النص وارد من قناة Telegram موثوقة.
-أعد صياغته كاملاً بأسلوب التحرير الصحفي العام للموقع: عنوان دقيق، ملخص موجز،
-ومتن كامل محافظ على الوقائع والأسماء والأرقام والروابط، مع لغة واضحة ومهنية وعدم
-إضافة معلومات من خارج المصدر. الاستثناء الوحيد: لا تطبق قيود الحظر أو الاستبعاد
-أو Gatekeeping على هذا الخبر، ولا تصفه بأنه محظور أو بروتوكولي، ولا تُرجع
-EXCLUDED_OFFICIAL_NEWS. اجعل houthi_iran_exclude=false.
-{f'رابط الفيديو محفوظ في حقل خارجي؛ لا تذكره أو تنسخه داخل title أو excerpt أو content: {video_url}' if video_url else ''}
+{SYSTEM_PROMPT}
+
+### تعليمات إضافية لنصوص Telegram:
+هذا النص وارد من قناة Telegram موثوقة.
+أعد صياغته كاملاً وفق التعليمات التحريرية الواردة في SYSTEM_PROMPT،
+مع الحفاظ على الوقائع والأسماء والأرقام والروابط، وعدم إضافة معلومات من خارج المصدر.
+
+الاستثناء الوحيد:
+لا تطبق قيود الحظر أو الاستبعاد أو Gatekeeping على هذا الخبر،
+ولا تُرجع EXCLUDED_OFFICIAL_NEWS.
+اجعل دائماً:
+houthi_iran_exclude=false.
+
 أعد JSON فقط بهذه الحقول:
 {{
   "title": "عنوان صحفي محرر",

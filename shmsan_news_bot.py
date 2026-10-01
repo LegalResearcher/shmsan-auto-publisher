@@ -3529,6 +3529,177 @@ houthi_iran_exclude=false.
 """
     return final_prompt
 
+
+def _parse_429(resp) -> tuple[bool, Optional[float]]:
+    is_daily, retry_delay = False, None
+    try:
+        for detail in resp.json().get("error", {}).get("details", []):
+            dtype = detail.get("@type", "")
+            if "QuotaFailure" in dtype:
+                for v in detail.get("violations", []):
+                    qid = (v.get("quotaId", "") + v.get("quotaMetric", "")).lower()
+                    if any(x in qid for x in ("perday", "per_day", "/day")):
+                        is_daily = True
+            if "RetryInfo" in dtype:
+                m = re.match(r"(\d+(?:\.\d+)?)s", str(detail.get("retryDelay", "")))
+                if m:
+                    retry_delay = float(m.group(1))
+    except Exception:
+        pass
+    if not is_daily:
+        low = resp.text.lower()
+        if any(x in low for x in ("perday", "per day", "/day")):
+            is_daily = True
+    return is_daily, retry_delay
+
+
+def call_gemini(prompt_text: str, schema: dict = None) -> str:
+    gen_config = {
+        "temperature": 0.5,
+        "maxOutputTokens": 32768,
+        "responseMimeType": "application/json",
+        "responseSchema": schema or RESPONSE_SCHEMA,
+    }
+    body = {"contents": [{"parts": [{"text": prompt_text}]}], "generationConfig": gen_config}
+    headers = {"Content-Type": "application/json", "x-goog-api-key": current_key()}
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            RATE_LIMITER.wait()
+            resp = requests.post(model_url(), headers=headers, json=body, timeout=120)
+            resp.raise_for_status()
+            r = resp.json()
+            if not r.get("candidates"):
+                log.warning(f"  ⚠️  استجابة بدون candidates: {str(r)[:300]}")
+                time.sleep(5)
+                continue
+            parts = r["candidates"][0].get("content", {}).get("parts", [])
+            return "".join(p.get("text", "") for p in parts)
+
+        except requests.exceptions.Timeout:
+            log.warning("  ⚠️  انتهت المهلة — إعادة بعد 15ث...")
+            time.sleep(15)
+
+        except requests.exceptions.HTTPError:
+            code = resp.status_code
+            if code == 429:
+                is_daily, retry_delay = _parse_429(resp)
+                if is_daily:
+                    raise DailyQuotaExceeded()
+                wait = min(int(retry_delay or 0) + 1 if retry_delay else 10 * attempt, MAX_BACKOFF)
+                log.warning(f"  ⏳ 429 — انتظار {wait}ث (محاولة {attempt})...")
+                time.sleep(wait)
+            elif code in (500, 503):
+                log.warning(f"  ⚠️  خطأ خادم ({code}) — إعادة بعد 20ث...")
+                time.sleep(20)
+            elif code == 404:
+                log.error(f"  ❌ النموذج {current_model()} غير متاح لهذا المفتاح (404)")
+                raise ModelUnavailable()
+            elif code in (401, 403):
+                log.error(f"  ❌ المفتاح مرفوض/محظور لهذا النموذج ({code}): {resp.text[:200]}")
+                raise KeyForbidden()
+            else:
+                log.error(f"  ❌ خطأ HTTP {code}: {resp.text[:200]}")
+                raise
+        except DailyQuotaExceeded:
+            raise
+        except ModelUnavailable:
+            raise
+        except KeyForbidden:
+            raise
+        except Exception as e:
+            log.error(f"  ❌ خطأ: {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(10)
+            else:
+                raise
+
+    raise ModelUnavailable()
+
+
+def call_with_rotation(prompt_text: str, schema: dict = None) -> str:
+    global _current_group_idx, _current_key_idx, _model_stage_idx
+    while True:
+        current_group = KEY_GROUPS[_current_group_idx]
+        try:
+            return call_gemini(prompt_text, schema)
+        except (DailyQuotaExceeded, ModelUnavailable, KeyForbidden) as e:
+            group_label = f"مجموعة {_current_group_idx + 1}/{len(KEY_GROUPS)}"
+            if isinstance(e, ModelUnavailable):
+                log.warning(
+                    f"  ⚠️  النموذج غير متاح لهذا المفتاح (404): {current_model()} "
+                    f"[{group_label} - مفتاح {_current_key_idx + 1}/{len(current_group)}]"
+                )
+            elif isinstance(e, KeyForbidden):
+                log.warning(
+                    f"  🚫 المفتاح مرفوض/محظور لهذا النموذج (401/403): {current_model()} "
+                    f"[{group_label} - مفتاح {_current_key_idx + 1}/{len(current_group)}]"
+                )
+            else:
+                log.warning(
+                    f"  🛑 انتهت الحصة اليومية ({current_model()}) "
+                    f"[{group_label} - مفتاح {_current_key_idx + 1}/{len(current_group)}]"
+                )
+
+            if NIGHT_MODE:
+                if _model_stage_idx + 1 < len(MODEL_CASCADE):
+                    _model_stage_idx += 1
+                    log.warning(
+                        f"  🌙 الانتقال إلى النموذج الليلي التالي {current_model()} "
+                        f"للمفتاح نفسه ({_model_stage_idx + 1}/{len(MODEL_CASCADE)})."
+                    )
+                    continue
+                if _current_key_idx > 0:
+                    _current_key_idx -= 1
+                    _model_stage_idx = 0
+                    log.warning(
+                        f"  🌙 استُنفدت نماذج المفتاح الحالي — الانتقال إلى "
+                        f"المفتاح {_current_key_idx + 1}/{len(current_group)} "
+                        f"بدءاً من {current_model()}."
+                    )
+                    continue
+                if _current_group_idx > 0:
+                    _current_group_idx -= 1
+                    _current_key_idx = len(KEY_GROUPS[_current_group_idx]) - 1
+                    _model_stage_idx = 0
+                    log.warning(
+                        f"  🌙 استُنفدت المجموعة الحالية — الانتقال إلى "
+                        f"المجموعة {_current_group_idx + 1}/{len(KEY_GROUPS)} "
+                        f"من آخر مفتاح وبدءاً من {current_model()}."
+                    )
+                    continue
+                log.error("  ❌ استُنفدت كل مجموعات ومفاتيح ونماذج الفترة الليلية بالكامل.")
+                raise
+
+            if _model_stage_idx + 1 < len(MODEL_CASCADE):
+                _model_stage_idx += 1
+                log.warning(
+                    f"  🔄 الانتقال إلى النموذج النهاري التالي {current_model()} "
+                    f"للمفتاح نفسه ({_model_stage_idx + 1}/{len(MODEL_CASCADE)})."
+                )
+                continue
+            if _current_key_idx + 1 < len(current_group):
+                _current_key_idx += 1
+                _model_stage_idx = 0
+                log.warning(
+                    f"  🔑 استُنفدت نماذج المفتاح السابق — الانتقال إلى "
+                    f"المفتاح {_current_key_idx + 1}/{len(current_group)} "
+                    f"بدءاً من {current_model()}."
+                )
+                continue
+            if _current_group_idx + 1 < len(KEY_GROUPS):
+                _current_group_idx += 1
+                _current_key_idx = 0
+                _model_stage_idx = 0
+                log.warning(
+                    f"  🔑 استُنفدت المجموعة الحالية — الانتقال إلى "
+                    f"المجموعة {_current_group_idx + 1}/{len(KEY_GROUPS)} "
+                    f"من أول مفتاح وبدءاً من {current_model()}."
+                )
+                continue
+            log.error("  ❌ استُنفدت كل مجموعات المفاتيح وكل النماذج — لا مزيد من الخيارات.")
+            raise
+
 def rewrite_article(
     title: str,
     body: str,

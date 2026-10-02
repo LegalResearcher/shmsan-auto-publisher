@@ -122,9 +122,8 @@ BLOCKED_KEYWORDS = ["حوثي", "إيران", "مواقيت الأذان", "مل
 
 # 🚫 عبارات/نشرات متكررة تُستبعد نهائياً بأي صيغة كتابة (اختلاف الهمزات/
 # التشكيل/المسافات/التطويل)، كل عبارة كمجموعة كلمات مفتاحية (لازم توجد كلها
-# معاً بعد تطبيع النص). ⚠️ بخلاف BLOCKED_KEYWORDS، هذا الحظر يُطبَّق على كل
-# الأخبار من كل الأقسام وكل المصادر بلا استثناء (حتى RSS المساء) — أي خبر
-# يطابق إحدى هذه المجموعات لا يُنشر نهائياً مهما كان قسمه أو مصدره.
+# معاً بعد تطبيع النص). ⚠️ بخلاف BLOCKED_KEYWORDS، يطبّق هذا الحظر افتراضياً
+# على كل الأقسام والمصادر؛ والاستثناء الوحيد أدناه خاص بموضوعات فيد 4 مايو.
 BLOCKED_BULLETIN_PHRASE_GROUPS = [
     ["تصفح", "العدد", "الالكتروني", "عدن", "تايم", "الورقيه"],  # إعلان تصفح العدد الإلكتروني لعدن تايم الورقية
     ["اقلاع", "رحلات", "طيران"],  # مواعيد إقلاع رحلات طيران اليمنية
@@ -136,6 +135,14 @@ BLOCKED_BULLETIN_PHRASE_GROUPS = [
     ["مستجدات", "كهرباء"],  # مستجدات كهرباء عدن
     ["اعتراض", "حوثي", "سعوديه"],  # اعتراض صواريخ حوثية باتجاه السعودية
 ]
+
+FOUR_MAY_EXEMPT_BULLETIN_PHRASE_GROUPS = {
+    ("اسعار", "صرف", "الريال"),
+    ("نشره", "اسعار", "الذهب"),
+    ("نشره", "اسعار", "صرف", "العملات"),
+    ("توقعات", "حاله", "الطقس"),
+    ("مستجدات", "كهرباء"),
+}
 
 _BLOCKED_PHRASE_DIACRITICS_RE = re.compile(r"[\u0617-\u061A\u064B-\u0652\u0670\u06D6-\u06ED]")
 
@@ -1107,15 +1114,19 @@ def contains_blocked_keyword(*texts: str) -> bool:
     return any(kw in combined for kw in BLOCKED_KEYWORDS)
 
 
-def contains_blocked_ad_phrase(*texts: str) -> bool:
+def contains_blocked_ad_phrase(*texts: str, source_feed: Optional[str] = None) -> bool:
     """يفحص النشرات/العبارات المتكررة (BLOCKED_BULLETIN_PHRASE_GROUPS) بعد
-    تطبيع النص (بأي صيغة كتابة). يُطبَّق على كل الأخبار من كل الأقسام
-    والمصادر بدون استثناء، بخلاف BLOCKED_KEYWORDS المحصورة بـ
-    BLOCKED_KEYWORDS_CATEGORIES/SOURCES."""
+    تطبيع النص (بأي صيغة كتابة). لفيد 4 مايو فقط تُستثنى مجموعات الطقس
+    والصرف والذهب والكهرباء المحددة في FOUR_MAY_EXEMPT_BULLETIN_PHRASE_GROUPS."""
     combined = " ".join(t for t in texts if t)
     normalized = _normalize_ar_for_blocking(combined)
+    exempt_groups = (
+        FOUR_MAY_EXEMPT_BULLETIN_PHRASE_GROUPS
+        if source_feed == RSS_4MAY_FULL_URL
+        else set()
+    )
     return any(
-        all(tok in normalized for tok in group)
+        tuple(group) not in exempt_groups and all(tok in normalized for tok in group)
         for group in BLOCKED_BULLETIN_PHRASE_GROUPS
     )
 
@@ -1150,7 +1161,12 @@ def collect_recent_items(feed_categories: Optional[dict] = None) -> list[dict]:
                 log.info(f"   ↳ 🚫 تم تجاوز {blocked} خبر يحتوي كلمات محظورة (لن يُرسل لـ Gemini أو يُنشر)")
 
         before_ad = len(recent)
-        recent = [it for it in recent if not contains_blocked_ad_phrase(it["title"], it["raw_body"])]
+        recent = [
+            it for it in recent
+            if not contains_blocked_ad_phrase(
+                it["title"], it["raw_body"], source_feed=feed_url
+            )
+        ]
         blocked_ad = before_ad - len(recent)
         if blocked_ad:
             log.info(f"   ↳ 🚫 تم تجاوز {blocked_ad} خبر يطابق نشرة/عبارة محظورة نهائياً (لن يُنشر)")

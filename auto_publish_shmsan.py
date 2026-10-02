@@ -128,12 +128,16 @@ BLOCKED_AUTO_TOPIC_KEYWORDS = [
 
 def _is_blocked_auto_topic(it: dict) -> bool:
     text = f"{it.get('title', '')} {it.get('raw_body', '')}"
-    if it.get("source_feed") in {RSS_ALNAQABI_FULL_URL, RSS_4MAY_FULL_URL}:
+    source_feed = it.get("source_feed")
+    if source_feed in {RSS_ALNAQABI_FULL_URL, RSS_4MAY_FULL_URL}:
         # يُطبّق الاستثناء نفسه على فيد 4 مايو وفيد النقابي، بما فيه تجاهل
         # الترويسة المعروفة للنقابي والسماح بعناوين «عاجل» لكلا المصدرين.
         text = text.replace("نرصد أخر أخبار الحدث الجنوبي العاجلة", "")
         text = text.replace("نرصد آخر أخبار الحدث الجنوبي العاجلة", "")
         keywords = [kw for kw in BLOCKED_AUTO_TOPIC_KEYWORDS if kw != "عاجل"]
+        if source_feed == RSS_4MAY_FULL_URL:
+            exempt_keywords = {"الطقس", "الصرف", "الذهب", "الكهرباء"}
+            keywords = [kw for kw in keywords if kw not in exempt_keywords]
     else:
         keywords = BLOCKED_AUTO_TOPIC_KEYWORDS
     return any(kw in text for kw in keywords)

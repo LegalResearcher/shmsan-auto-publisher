@@ -1054,6 +1054,36 @@ def fetch_yemen_category_page(category: str) -> list[dict]:
     return items
 
 
+def _correct_4may_rss_timezone(dt: datetime, raw: str, source_url: str) -> datetime:
+    """Treat 4May's zero-offset RSS label as Aden local time, for that feed only.
+
+    4May's article page displays the same clock time as its RSS ``GMT`` field
+    but labels the page time as Aden. Reinterpret that wall-clock value as UTC+3
+    so Shmsan does not store a future publication time. Explicit non-zero
+    offsets and every other feed retain their original interpretation.
+    """
+    feed_url = (source_url or "").strip().rstrip("/").lower()
+    target_url = RSS_4MAY_FULL_URL.strip().rstrip("/").lower()
+    if feed_url != target_url or dt.tzinfo is None or dt.utcoffset() != timedelta(0):
+        return dt
+
+    zero_offset_label = re.search(
+        r"(?:\bGMT\b|\bUTC\b|[+-]0000|[+-]00:00)\s*$",
+        raw or "",
+        re.IGNORECASE,
+    )
+    if not zero_offset_label:
+        return dt
+
+    corrected = dt.replace(tzinfo=YEMEN_TZ).astimezone(timezone.utc)
+    log.info(
+        "🕒 صُحّح توقيت فيد 4 مايو من وسم GMT إلى توقيت عدن: %s → %s",
+        raw,
+        corrected.isoformat(),
+    )
+    return corrected
+
+
 def parse_pub_date(pub_date_raw: str, source_url: str = "") -> datetime:
     """
     تحليل تاريخ النشر من مصادر RSS/XML متعددة الصيغ.
@@ -1076,7 +1106,7 @@ def parse_pub_date(pub_date_raw: str, source_url: str = "") -> datetime:
         dt = parsedate_to_datetime(raw)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return _correct_4may_rss_timezone(dt, raw, source_url)
     except Exception:
         pass
 
@@ -1097,7 +1127,7 @@ def parse_pub_date(pub_date_raw: str, source_url: str = "") -> datetime:
             dt = datetime.strptime(cleaned, fmt)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return dt
+            return _correct_4may_rss_timezone(dt, raw, source_url)
         except Exception:
             continue
 

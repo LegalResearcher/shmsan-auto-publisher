@@ -15,6 +15,6 @@ Semicolons separate groups; commas separate keys in each group. If `GEMINI_API_K
 ## Rotation behavior
 
 - Yemen local time from 00:00 through 13:59 is night mode. It tries `gemini-3.1-flash-lite`, then `gemini-3.5-flash-lite`; within each group it starts with the last key and rotates backward, then proceeds to the previous group.
-- Yemen local time from 14:00 through 23:59 is day mode. It tries `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.7-flash`, `gemini-3.5-flash-lite`, then `gemini-3.1-flash-lite`; within each group it tries the full model sequence for each key, then advances to the next group.
+- Yemen local time from 14:00 through 23:59 is day mode. It tries `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.8-flash`, `gemini-3.5-flash-lite`, then `gemini-3.1-flash-lite`; within each group it tries the full model sequence for each key, then advances to the next group.
 - Daily quota exhaustion, unavailable models, and rejected keys advance the rotation. Transient rate-limit, server, and timeout errors follow the existing retry behavior.
 - Rotation state is per process; a new workflow run starts at the initial model/key for the current Yemen-time mode.

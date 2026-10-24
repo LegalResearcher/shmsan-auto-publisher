@@ -105,7 +105,7 @@ RSS_YPAGENCY_FULL_CATEGORY = "أخبار وتقارير"
 RSS_ALNAQABI_FULL_URL = "https://alnqabialjanubi.com/archives/category/newscat/feed"
 RSS_ALNAQABI_FULL_CATEGORY = "أخبار وتقارير"
 
-RSS_4MAY_FULL_URL = "https://www.4may.net/feedsec/1"
+RSS_4MAY_FULL_URL = "https://www.4may.net/feed"
 RSS_4MAY_FULL_CATEGORY = "أخبار وتقارير"
 
 # رابط RSS الحي لوكالة الصحافة اليمنية لقسم "اليمن – سياسية".
